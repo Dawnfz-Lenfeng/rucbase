@@ -26,7 +26,7 @@ std::unique_ptr<RmRecord> RmFileHandle::get_record(const Rid &rid, Context *cont
     char *data = page_handle.get_slot(rid.slot_no);
 
     // getting record does not modify the page
-    buffer_pool_manager_->UnpinPage(page_handle.page->GetPageId(), false);
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), false);
 
     return std::make_unique<RmRecord>(file_hdr_.record_size, data);
 }
@@ -57,8 +57,8 @@ Rid RmFileHandle::insert_record(char* buf, Context* context) {
         file_hdr_.first_free_page_no = page_handle.page_hdr->next_free_page_no;
     }
 
-    buffer_pool_manager_->UnpinPage(page_handle.page->GetPageId(), true);
-    return Rid{page_handle.page->GetPageId().page_no, slot};
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
+    return Rid{page_handle.page->get_page_id().page_no, slot};
 }
 
 /**
@@ -90,7 +90,7 @@ void RmFileHandle::delete_record(const Rid& rid, Context* context) {
         release_page_handle(page_handle);
     }
 
-    buffer_pool_manager_->UnpinPage(page_handle.page->GetPageId(), true);
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
 }
 
 /**
@@ -106,7 +106,7 @@ void RmFileHandle::update_record(const Rid& rid, char* buf, Context* context) {
 
     RmPageHandle page_handle = fetch_page_handle(rid.page_no);
     memcpy(page_handle.get_slot(rid.slot_no), buf, file_hdr_.record_size);
-    buffer_pool_manager_->UnpinPage(page_handle.page->GetPageId(), true);
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
 }
 
 /**
@@ -122,7 +122,7 @@ RmPageHandle RmFileHandle::fetch_page_handle(int page_no) const {
     // 使用缓冲池获取指定页面，并生成page_handle返回给上层
     // if page_no is invalid, throw PageNotExistError exception
 
-    Page *page = buffer_pool_manager_->FetchPage({fd_, page_no});
+    Page *page = buffer_pool_manager_->fetch_page({fd_, page_no});
     if (page == nullptr) {
         throw PageNotExistError(std::to_string(fd_), page_no);
     }
@@ -142,7 +142,7 @@ RmPageHandle RmFileHandle::create_new_page_handle() {
 
     // new page
     PageId page_id{fd_, INVALID_PAGE_ID};
-    Page *page = buffer_pool_manager_->NewPage(&page_id);
+    Page *page = buffer_pool_manager_->new_page(&page_id);
 
     RmPageHandle page_handle(&file_hdr_, page);
     // reset page header
@@ -184,5 +184,5 @@ void RmFileHandle::release_page_handle(RmPageHandle&page_handle) {
     // 2. file_hdr_.first_free_page_no
 
     page_handle.page_hdr->next_free_page_no = file_hdr_.first_free_page_no;
-    file_hdr_.first_free_page_no = page_handle.page->GetPageId().page_no;
+    file_hdr_.first_free_page_no = page_handle.page->get_page_id().page_no;
 }
