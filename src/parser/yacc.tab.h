@@ -1,9 +1,8 @@
-/* A Bison parser, made by GNU Bison 3.5.1.  */
+/* A Bison parser, made by GNU Bison 3.0.4.  */
 
 /* Bison interface for Yacc-like parsers in C
 
-   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2020 Free Software Foundation,
-   Inc.
+   Copyright (C) 1984, 1989-1990, 2000-2015 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -31,11 +30,8 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
-/* Undocumented macros, especially those whose name start with YY_,
-   are private implementation details.  Do not rely on them.  */
-
-#ifndef YY_YY_HOME_AARON_RUCDEKE_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED
-# define YY_YY_HOME_AARON_RUCDEKE_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED
+#ifndef YY_YY_RUCBASE_LAB_SRC_PARSER_YACC_TAB_H_INCLUDED
+# define YY_YY_RUCBASE_LAB_SRC_PARSER_YACC_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef YYDEBUG
 # define YYDEBUG 0
@@ -60,30 +56,34 @@ extern int yydebug;
     VALUES = 266,
     DELETE = 267,
     FROM = 268,
-    WHERE = 269,
-    UPDATE = 270,
-    SET = 271,
-    SELECT = 272,
-    INT = 273,
-    CHAR = 274,
-    FLOAT = 275,
-    INDEX = 276,
-    AND = 277,
-    JOIN = 278,
-    EXIT = 279,
-    HELP = 280,
-    TXN_BEGIN = 281,
-    TXN_COMMIT = 282,
-    TXN_ABORT = 283,
-    TXN_ROLLBACK = 284,
-    LEQ = 285,
-    NEQ = 286,
-    GEQ = 287,
-    T_EOF = 288,
-    IDENTIFIER = 289,
-    VALUE_STRING = 290,
-    VALUE_INT = 291,
-    VALUE_FLOAT = 292
+    ASC = 269,
+    ORDER = 270,
+    BY = 271,
+    WHERE = 272,
+    UPDATE = 273,
+    SET = 274,
+    SELECT = 275,
+    INT = 276,
+    CHAR = 277,
+    FLOAT = 278,
+    INDEX = 279,
+    AND = 280,
+    JOIN = 281,
+    EXIT = 282,
+    HELP = 283,
+    TXN_BEGIN = 284,
+    TXN_COMMIT = 285,
+    TXN_ABORT = 286,
+    TXN_ROLLBACK = 287,
+    ORDER_BY = 288,
+    LEQ = 289,
+    NEQ = 290,
+    GEQ = 291,
+    T_EOF = 292,
+    IDENTIFIER = 293,
+    VALUE_STRING = 294,
+    VALUE_INT = 295,
+    VALUE_FLOAT = 296
   };
 #endif
 
@@ -107,4 +107,4 @@ struct YYLTYPE
 
 int yyparse (void);
 
-#endif /* !YY_YY_HOME_AARON_RUCDEKE_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED  */
+#endif /* !YY_YY_RUCBASE_LAB_SRC_PARSER_YACC_TAB_H_INCLUDED  */
