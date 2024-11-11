@@ -15,18 +15,37 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
     // Todo: try to find a victim frame in buffer pool with clock scheme
     // and make the *frame_id = victim_frame_id
     // not found, frame_id=nullptr and return false
+    if (!Size()) {
+        frame_id = nullptr;
+        return false;
+    }
 
-    return false;
+    do {
+        auto &status = circular_[hand_];
+        if (status == ClockReplacer::Status::ACCESSED) {
+            status = ClockReplacer::Status::UNTOUCHED;
+        } else if (status == ClockReplacer::Status::UNTOUCHED) {
+            *frame_id = hand_;
+            status = ClockReplacer::Status::EMPTY_OR_PINNED;
+            return true;
+        }
+        hand_ = (hand_ + 1) % capacity_;
+    } while (1);
 }
 
 void ClockReplacer::Pin(frame_id_t frame_id) {
     const std::lock_guard<mutex_t> guard(mutex_);
     // Todo: you can implement it!
+    circular_[frame_id] = ClockReplacer::Status::EMPTY_OR_PINNED;
 }
 
 void ClockReplacer::Unpin(frame_id_t frame_id) {
     const std::lock_guard<mutex_t> guard(mutex_);
     // Todo: you can implement it!
+    auto &status = circular_[frame_id];
+    if (status == ClockReplacer::Status::EMPTY_OR_PINNED) {
+        status = ClockReplacer::Status::ACCESSED;
+    }
 }
 
 size_t ClockReplacer::Size() {
@@ -35,5 +54,7 @@ size_t ClockReplacer::Size() {
     // return all items that in the range[circular_.begin, circular_.end )
     // and be met the condition: status!=EMPTY_OR_PINNED
     // That is the number of frames in the buffer pool that storage page (NOT EMPTY_OR_PINNED)
-    return -1;
+    return std::count_if(circular_.begin(), circular_.end(), [](const ClockReplacer::Status &status) {
+        return status != ClockReplacer::Status::EMPTY_OR_PINNED;
+    });
 }

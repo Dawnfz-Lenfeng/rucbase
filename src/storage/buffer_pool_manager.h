@@ -144,6 +144,6 @@ class BufferPoolManager {
 
    private:
     bool FindVictimPage(frame_id_t *frame_id);
-
+    bool GetFrameId(PageId page_id, frame_id_t *frame_id);
     void UpdatePage(Page *page, PageId new_page_id, frame_id_t new_frame_id);
 };
