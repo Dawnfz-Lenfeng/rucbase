@@ -12,6 +12,16 @@ See the Mulan PSL v2 for more details. */
 
 #include "ix_scan.h"
 
+void unlock_pages(BufferPoolManager *buffer_pool_manager, Transaction *transaction) {
+    while (!transaction->get_index_latch_page_set()->empty()) {
+        Page *page = transaction->get_index_latch_page_set()->front();
+        transaction->get_index_latch_page_set()->pop_front();
+
+        page->unlock(true);
+        buffer_pool_manager->unpin_page(page->get_page_id(), false);
+    }
+}
+
 /**
  * @brief 在当前node中查找第一个>=target的key_idx
  *
@@ -239,7 +249,39 @@ std::pair<IxNodeHandle *, bool> IxIndexHandle::find_leaf_page(const char *key, O
     // 2. 从根节点开始不断向下查找目标key
     // 3. 找到包含该key值的叶子结点停止查找，并返回叶子节点
 
-    return std::make_pair(nullptr, false);
+    IxNodeHandle *current = fetch_node(file_hdr_->root_page_);
+    bool root_is_latched = false;
+
+    bool find = operation == Operation::FIND;
+    if (!find) {
+        root_latch_.lock();
+        root_is_latched = true;
+    }
+
+    current->page->lock(!find);
+
+    while (!current->is_leaf_page()) {
+        page_id_t child_page_id = current->internal_lookup(key);
+        IxNodeHandle *child = fetch_node(child_page_id);
+
+        child->page->lock();
+
+        if (find) {
+            current->page->unlock(false);
+            buffer_pool_manager_->unpin_page(current->page->get_page_id(), false);
+        } else {
+            assert(transaction != nullptr);
+            transaction->append_index_latch_page_set(current->page);
+
+            if (child->is_safe(operation)) {
+                unlock_pages(buffer_pool_manager_, transaction);
+            }
+        }
+
+        current = child;
+    }
+
+    return {current, root_is_latched};
 }
 
 /**
@@ -257,7 +299,21 @@ bool IxIndexHandle::get_value(const char *key, std::vector<Rid> *result, Transac
     // 3. 把rid存入result参数中
     // 提示：使用完buffer_pool提供的page之后，记得unpin page；记得处理并发的上锁
 
-    return false;
+    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::FIND, transaction);
+
+    Rid *rid;
+    bool found = leaf->leaf_lookup(key, &rid);
+
+    if (found) {
+        result->push_back(*rid);
+    }
+    leaf->page->unlock(false);
+    buffer_pool_manager_->unpin_page(leaf->page->get_page_id(), false);
+
+    if (root_is_latched) {
+        root_latch_.unlock();
+    }
+    return found;
 }
 
 /**
@@ -275,7 +331,35 @@ IxNodeHandle *IxIndexHandle::split(IxNodeHandle *node) {
     //    为新节点分配键值对，更新旧节点的键值对数记录
     // 3. 如果新的右兄弟结点不是叶子结点，更新该结点的所有孩子结点的父节点信息(使用IxIndexHandle::maintain_child())
 
-    return nullptr;
+    IxNodeHandle *new_node = create_node();
+    new_node->page_hdr->is_leaf = node->page_hdr->is_leaf;
+    new_node->page_hdr->parent = node->get_parent_page_no();
+
+    int total_size = node->get_size();
+    int split_point = (total_size + 1) / 2;
+    int new_size = total_size - split_point;
+
+    new_node->insert_pairs(0, node->get_key(split_point), node->get_rid(split_point), new_size);
+    node->set_size(split_point);
+
+    if (node->is_leaf_page()) {
+        new_node->set_next_leaf(node->get_next_leaf());
+        new_node->set_prev_leaf(node->get_page_no());
+        node->set_next_leaf(new_node->get_page_no());
+
+        if (new_node->get_next_leaf() != INVALID_PAGE_ID) {
+            IxNodeHandle *next = fetch_node(new_node->get_next_leaf());
+            next->set_prev_leaf(new_node->get_page_no());
+            buffer_pool_manager_->unpin_page(next->get_page_id(), true);
+        }
+    } else {
+        // 非叶子节点需要更新所有子节点的父指针
+        for (int i = 0; i < new_node->get_size(); i++) {
+            maintain_child(new_node, i);
+        }
+    }
+
+    return new_node;
 }
 
 /**
@@ -299,6 +383,42 @@ void IxIndexHandle::insert_into_parent(IxNodeHandle *old_node, const char *key, 
     // 3. 获取key对应的rid，并将(key, rid)插入到父亲结点
     // 4. 如果父亲结点仍需要继续分裂，则进行递归插入
     // 提示：记得unpin page
+
+    if (old_node->is_root_page()) {
+        IxNodeHandle *new_root = create_node();
+        new_root->page_hdr->is_leaf = false;
+
+        new_root->insert_pair(0, old_node->get_key(0), {old_node->get_page_no(), -1});
+        new_root->insert_pair(1, key, {new_node->get_page_no(), -1});
+
+        // 更新子节点的父指针
+        old_node->set_parent_page_no(new_root->get_page_no());
+        new_node->set_parent_page_no(new_root->get_page_no());
+
+        // 更新根节点信息
+        update_root_page_no(new_root->get_page_no());
+
+        buffer_pool_manager_->unpin_page(new_root->get_page_id(), true);
+        return;
+    }
+
+    IxNodeHandle *parent = fetch_node(old_node->get_parent_page_no());
+
+    // 在父节点中插入new_node的第一个key和指针
+    int index = parent->find_child(old_node);
+
+    Rid rid{new_node->get_page_no(), -1};
+    parent->insert_pair(index + 1, key, rid);
+
+    // 检查父节点是否需要分裂
+    if (parent->get_size() >= parent->get_max_size()) {
+        IxNodeHandle *new_parent = split(parent);
+        insert_into_parent(parent, new_parent->get_key(0), new_parent, transaction);
+
+        buffer_pool_manager_->unpin_page(new_parent->get_page_id(), true);
+    }
+
+    buffer_pool_manager_->unpin_page(parent->get_page_id(), true);
 }
 
 /**
@@ -314,7 +434,22 @@ page_id_t IxIndexHandle::insert_entry(const char *key, const Rid &value, Transac
     // 3. 如果结点已满，分裂结点，并把新结点的相关信息插入父节点
     // 提示：记得unpin page；若当前叶子节点是最右叶子节点，则需要更新file_hdr_.last_leaf；记得处理并发的上锁
 
-    return -1;
+    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::INSERT, transaction);
+    leaf->insert(key, value);
+
+    if (leaf->get_size() >= leaf->get_max_size()) {
+        IxNodeHandle *new_leaf = split(leaf);
+        insert_into_parent(leaf, new_leaf->get_key(0), new_leaf, transaction);
+
+        buffer_pool_manager_->unpin_page(new_leaf->get_page_id(), true);
+    }
+
+    buffer_pool_manager_->unpin_page(leaf->get_page_id(), true);
+
+    if (root_is_latched) {
+        root_latch_.unlock();
+    }
+    return leaf->get_page_no();
 }
 
 /**
@@ -328,6 +463,15 @@ bool IxIndexHandle::delete_entry(const char *key, Transaction *transaction) {
     // 2. 在该叶子结点中删除键值对
     // 3. 如果删除成功需要调用CoalesceOrRedistribute来进行合并或重分配操作，并根据函数返回结果判断是否有结点需要删除
     // 4. 如果需要并发，并且需要删除叶子结点，则需要在事务的delete_page_set中添加删除结点的对应页面；记得处理并发的上锁
+
+    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::DELETE, transaction);
+    int page_num = leaf->remove(key);
+
+    if (!leaf->is_safe(Operation::DELETE)) {
+        if (coalesce_or_redistribute(leaf, transaction, &root_is_latched)) {
+            transaction->append_index_deleted_page(leaf->page);
+        }
+    }
 
     return false;
 }
@@ -354,6 +498,8 @@ bool IxIndexHandle::coalesce_or_redistribute(IxNodeHandle *node, Transaction *tr
     // NodeMinSize*2)，则只需要重新分配键值对（调用Redistribute函数）
     // 5. 如果不满足上述条件，则需要合并两个结点，将右边的结点合并到左边的结点（调用Coalesce函数）
 
+    if (node->is_root_page()) {
+    }
     return false;
 }
 
@@ -489,7 +635,6 @@ Iid IxIndexHandle::leaf_begin() const {
 IxNodeHandle *IxIndexHandle::fetch_node(int page_no) const {
     Page *page = buffer_pool_manager_->fetch_page(PageId{fd_, page_no});
     IxNodeHandle *node = new IxNodeHandle(file_hdr_, page);
-    
     return node;
 }
 

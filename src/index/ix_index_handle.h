@@ -155,6 +155,16 @@ class IxNodeHandle {
         assert(rid_idx < page_hdr->num_key);
         return rid_idx;
     }
+
+    bool is_safe(Operation op) {
+        if (op == Operation::INSERT) {
+            return get_size() < get_max_size() - 1;
+        }
+        if (op == Operation::DELETE) {
+            return get_size() > get_min_size();
+        }
+        return true;
+    }
 };
 
 /* B+树 */
