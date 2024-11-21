@@ -62,15 +62,6 @@ Rid RmFileHandle::insert_record(char* buf, Context* context) {
 }
 
 /**
- * @description: 在当前表中的指定位置插入一条记录
- * @param {Rid&} rid 要插入记录的位置
- * @param {char*} buf 要插入记录的数据
- */
-void RmFileHandle::insert_record(const Rid& rid, char* buf) {
-    
-}
-
-/**
  * @description: 删除记录文件中记录号为rid的记录
  * @param {Rid&} rid 要删除的记录的记录号（位置）
  * @param {Context*} context
