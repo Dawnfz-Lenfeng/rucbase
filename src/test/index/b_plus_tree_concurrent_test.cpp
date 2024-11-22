@@ -154,15 +154,15 @@ class BPlusTreeConcurrentTest : public ::testing::Test {
             }
             // Print leaves
             for (int i = 0; i < inner->get_size(); i++) {
-                IxNodeHandle *child_node = ih->fetch_node(inner->value_at(i));
-                ToGraph(ih, child_node, bpm, out);  // 继续递归
+                IxNodeHandle child_node = ih->fetch_node(inner->value_at(i));
+                ToGraph(ih, &child_node, bpm, out);  // 继续递归
                 if (i > 0) {
-                    IxNodeHandle *sibling_node = ih->fetch_node(inner->value_at(i - 1));
-                    if (!sibling_node->is_leaf_page() && !child_node->is_leaf_page()) {
-                        out << "{rank=same " << internal_prefix << sibling_node->get_page_no() << " " << internal_prefix
-                            << child_node->get_page_no() << "};\n";
+                    IxNodeHandle sibling_node = ih->fetch_node(inner->value_at(i - 1));
+                    if (!sibling_node.is_leaf_page() && !child_node.is_leaf_page()) {
+                        out << "{rank=same " << internal_prefix << sibling_node.get_page_no() << " " << internal_prefix
+                            << child_node.get_page_no() << "};\n";
                     }
-                    bpm->unpin_page(sibling_node->get_page_id(), false);
+                    bpm->unpin_page(sibling_node.get_page_id(), false);
                 }
             }
         }
@@ -179,8 +179,8 @@ class BPlusTreeConcurrentTest : public ::testing::Test {
         std::ofstream out(outf);
         out << "digraph G {" << std::endl;
         
-        IxNodeHandle *node = ih_->fetch_node(ih_->file_hdr_->root_page_);
-        ToGraph(ih_.get(), node, bpm, out);
+        IxNodeHandle node = ih_->fetch_node(ih_->file_hdr_->root_page_);
+        ToGraph(ih_.get(), &node, bpm, out);
         out << "}" << std::endl;
         out.close();
 
@@ -206,16 +206,16 @@ class BPlusTreeConcurrentTest : public ::testing::Test {
         // check leaf list
         page_id_t leaf_no = ih->file_hdr_->first_leaf_;
         while (leaf_no != IX_LEAF_HEADER_PAGE) {
-            IxNodeHandle *curr = ih->fetch_node(leaf_no);
-            IxNodeHandle *prev = ih->fetch_node(curr->get_prev_leaf());
-            IxNodeHandle *next = ih->fetch_node(curr->get_next_leaf());
+            IxNodeHandle curr = ih->fetch_node(leaf_no);
+            IxNodeHandle prev = ih->fetch_node(curr.get_prev_leaf());
+            IxNodeHandle next = ih->fetch_node(curr.get_next_leaf());
             // Ensure prev->next == curr && next->prev == curr
-            ASSERT_EQ(prev->get_next_leaf(), leaf_no);
-            ASSERT_EQ(next->get_prev_leaf(), leaf_no);
-            leaf_no = curr->get_next_leaf();
-            buffer_pool_manager_->unpin_page(curr->get_page_id(), false);
-            buffer_pool_manager_->unpin_page(prev->get_page_id(), false);
-            buffer_pool_manager_->unpin_page(next->get_page_id(), false);
+            ASSERT_EQ(prev.get_next_leaf(), leaf_no);
+            ASSERT_EQ(next.get_prev_leaf(), leaf_no);
+            leaf_no = curr.get_next_leaf();
+            buffer_pool_manager_->unpin_page(curr.get_page_id(), false);
+            buffer_pool_manager_->unpin_page(prev.get_page_id(), false);
+            buffer_pool_manager_->unpin_page(next.get_page_id(), false);
         }
     }
 
@@ -226,33 +226,33 @@ class BPlusTreeConcurrentTest : public ::testing::Test {
      * @param now_page_no 当前遍历到的结点
      */
     void check_tree(const IxIndexHandle *ih, int now_page_no) {
-        IxNodeHandle *node = ih->fetch_node(now_page_no);
-        if (node->is_leaf_page()) {
-            buffer_pool_manager_->unpin_page(node->get_page_id(), false);
+        IxNodeHandle node = ih->fetch_node(now_page_no);
+        if (node.is_leaf_page()) {
+            buffer_pool_manager_->unpin_page(node.get_page_id(), false);
             return;
         }
-        for (int i = 0; i < node->get_size(); i++) {                 // 遍历node的所有孩子
-            IxNodeHandle *child = ih->fetch_node(node->value_at(i));  // 第i个孩子
+        for (int i = 0; i < node.get_size(); i++) {                 // 遍历node的所有孩子
+            IxNodeHandle child = ih->fetch_node(node.value_at(i));  // 第i个孩子
             // check parent
-            assert(child->get_parent_page_no() == now_page_no);
+            assert(child.get_parent_page_no() == now_page_no);
             // check first key
-            int node_key = node->key_at(i);  // node的第i个key
-            int child_first_key = child->key_at(0);
-            int child_last_key = child->key_at(child->get_size() - 1);
+            int node_key = node.key_at(i);  // node的第i个key
+            int child_first_key = child.key_at(0);
+            int child_last_key = child.key_at(child.get_size() - 1);
             if (i != 0) {
                 // 除了第0个key之外，node的第i个key与其第i个孩子的第0个key的值相同
                 ASSERT_EQ(node_key, child_first_key);
             }
-            if (i + 1 < node->get_size()) {
+            if (i + 1 < node.get_size()) {
                 // 满足制约大小关系
-                ASSERT_LT(child_last_key, node->key_at(i + 1));  // child_last_key < node->KeyAt(i + 1)
+                ASSERT_LT(child_last_key, node.key_at(i + 1));  // child_last_key < node.KeyAt(i + 1)
             }
 
-            buffer_pool_manager_->unpin_page(child->get_page_id(), false);
+            buffer_pool_manager_->unpin_page(child.get_page_id(), false);
 
-            check_tree(ih, node->value_at(i));  // 递归子树
+            check_tree(ih, node.value_at(i));  // 递归子树
         }
-        buffer_pool_manager_->unpin_page(node->get_page_id(), false);
+        buffer_pool_manager_->unpin_page(node.get_page_id(), false);
     }
 
     /**
