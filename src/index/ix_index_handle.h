@@ -157,13 +157,14 @@ class IxNodeHandle {
     }
 
     bool is_safe(Operation op) {
-        if (op == Operation::INSERT) {
-            return get_size() < get_max_size() - 1;
+        switch (op) {
+            case Operation::INSERT:
+                return get_size() < get_max_size() - 1;
+            case Operation::DELETE:
+                return get_size() > get_min_size();
+            default:
+                return true;
         }
-        if (op == Operation::DELETE) {
-            return get_size() > get_min_size();
-        }
-        return true;
     }
 };
 
@@ -198,13 +199,13 @@ class IxIndexHandle {
     // for delete
     bool delete_entry(const char *key, Transaction *transaction);
 
-    bool coalesce_or_redistribute(IxNodeHandle *node, Transaction *transaction = nullptr,
+    void coalesce_or_redistribute(IxNodeHandle *node, Transaction *transaction = nullptr,
                                 bool *root_is_latched = nullptr);
     bool adjust_root(IxNodeHandle *old_root_node);
 
     void redistribute(IxNodeHandle *neighbor_node, IxNodeHandle *node, IxNodeHandle *parent, int index);
 
-    bool coalesce(IxNodeHandle **neighbor_node, IxNodeHandle **node, IxNodeHandle **parent, int index,
+    void coalesce(IxNodeHandle **neighbor_node, IxNodeHandle **node, IxNodeHandle **parent, int index,
                   Transaction *transaction, bool *root_is_latched);
 
     Iid lower_bound(const char *key);
