@@ -145,10 +145,10 @@ class IxNodeHandle {
      * @param child
      * @return int
      */
-    int find_child(IxNodeHandle *child) {
+    int find_child(IxNodeHandle child) {
         int rid_idx;
         for (rid_idx = 0; rid_idx < page_hdr->num_key; rid_idx++) {
-            if (get_rid(rid_idx)->page_no == child->get_page_no()) {
+            if (get_rid(rid_idx)->page_no == child.get_page_no()) {
                 break;
             }
         }
@@ -186,26 +186,26 @@ class IxIndexHandle {
     // for search
     bool get_value(const char *key, std::vector<Rid> *result, Transaction *transaction);
 
-    std::pair<IxNodeHandle *, bool> find_leaf_page(const char *key, Operation operation, Transaction *transaction,
+    std::pair<IxNodeHandle, bool> find_leaf_page(const char *key, Operation operation, Transaction *transaction,
                                                  bool find_first = false);
 
     // for insert
     page_id_t insert_entry(const char *key, const Rid &value, Transaction *transaction);
 
-    IxNodeHandle *split(IxNodeHandle *node);
+    IxNodeHandle split(IxNodeHandle node);
 
-    void insert_into_parent(IxNodeHandle *old_node, const char *key, IxNodeHandle *new_node, Transaction *transaction);
+    void insert_into_parent(IxNodeHandle old_node, const char *key, IxNodeHandle new_node, Transaction *transaction);
 
     // for delete
     bool delete_entry(const char *key, Transaction *transaction);
 
-    void coalesce_or_redistribute(IxNodeHandle *node, Transaction *transaction = nullptr,
+    void coalesce_or_redistribute(IxNodeHandle node, Transaction *transaction = nullptr,
                                 bool *root_is_latched = nullptr);
-    bool adjust_root(IxNodeHandle *old_root_node);
+    bool adjust_root(IxNodeHandle old_root_node);
 
-    void redistribute(IxNodeHandle *neighbor_node, IxNodeHandle *node, IxNodeHandle *parent, int index);
+    void redistribute(IxNodeHandle neighbor_node, IxNodeHandle node, IxNodeHandle parent, int index);
 
-    void coalesce(IxNodeHandle **neighbor_node, IxNodeHandle **node, IxNodeHandle **parent, int index,
+    void coalesce(IxNodeHandle *neighbor_node, IxNodeHandle *node, IxNodeHandle *parent, int index,
                   Transaction *transaction, bool *root_is_latched);
 
     Iid lower_bound(const char *key);
@@ -223,18 +223,18 @@ class IxIndexHandle {
     bool is_empty() const { return file_hdr_->root_page_ == IX_NO_PAGE; }
 
     // for get/create node
-    IxNodeHandle *fetch_node(int page_no) const;
+    IxNodeHandle fetch_node(int page_no) const;
 
-    IxNodeHandle *create_node();
+    IxNodeHandle create_node();
 
     // for maintain data structure
-    void maintain_parent(IxNodeHandle *node);
+    void maintain_parent(IxNodeHandle node);
 
-    void erase_leaf(IxNodeHandle *leaf);
+    void erase_leaf(IxNodeHandle leaf);
 
     void release_node_handle(IxNodeHandle &node);
 
-    void maintain_child(IxNodeHandle *node, int child_idx);
+    void maintain_child(IxNodeHandle node, int child_idx);
 
     // for index test
     Rid get_rid(const Iid &iid) const;

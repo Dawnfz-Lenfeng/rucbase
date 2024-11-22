@@ -223,7 +223,7 @@ bool BufferPoolManager::delete_page(PageId page_id) {
 
     // someone is using the page
     if (page->pin_count_) {
-        return true;
+        return false;
     }
     // P can be deleted
     page_table_.erase(page_id);
