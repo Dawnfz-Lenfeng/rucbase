@@ -208,7 +208,7 @@ class IxIndexHandle {
 
     void redistribute(IxNodeHandle neighbor_node, IxNodeHandle node, IxNodeHandle parent, int index);
 
-    void coalesce(IxNodeHandle *neighbor_node, IxNodeHandle *node, IxNodeHandle *parent, int index,
+    void coalesce(IxNodeHandle &neighbor_node, IxNodeHandle &node, IxNodeHandle &parent, int index,
                   Transaction *transaction, bool *root_is_latched);
 
     Iid lower_bound(const char *key);

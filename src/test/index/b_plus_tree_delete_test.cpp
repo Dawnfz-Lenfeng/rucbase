@@ -457,7 +457,7 @@ TEST_F(BPlusTreeTests, LargeScaleTest) {
                 continue;
             }
             Rid rand_val = {.page_no = rand(), .slot_no = rand()};
-            printf("insert rand key=%d\n", rand_key);
+            // printf("insert rand key=%d\n", rand_key);
             bool insert_ret = ih_->insert_entry((const char *)&rand_key, rand_val, txn_.get());  // 调用Insert
             ASSERT_EQ(insert_ret, true);
             mock.insert(std::make_pair(rand_key, rand_val));
@@ -475,7 +475,7 @@ TEST_F(BPlusTreeTests, LargeScaleTest) {
                 it++;
             }
             int key = it->first;
-            printf("delete rand key=%d\n", key);
+            // printf("delete rand key=%d\n", key);
             if(key == 129){
                 std::cout << "now" ;
             }
