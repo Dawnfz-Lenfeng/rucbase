@@ -159,13 +159,16 @@ class IxNodeHandle {
     bool is_safe(Operation op) {
         switch (op) {
             case Operation::INSERT:
-                return get_size() < get_max_size() - 1;
+                return get_size() + 1 < get_max_size();
             case Operation::DELETE:
-                return get_size() > get_min_size();
+                return get_size() - 1 >= get_min_size();
             default:
                 return true;
         }
     }
+
+    bool is_overflow() { return get_size() >= get_max_size(); }
+    bool is_underflow() { return get_size() < get_min_size(); }
 };
 
 /* B+树 */
@@ -199,7 +202,7 @@ class IxIndexHandle {
     // for delete
     bool delete_entry(const char *key, Transaction *transaction);
 
-    void coalesce_or_redistribute(IxNodeHandle node, Transaction *transaction = nullptr,
+    bool coalesce_or_redistribute(IxNodeHandle node, Transaction *transaction = nullptr,
                                 bool *root_is_latched = nullptr);
     bool adjust_root(IxNodeHandle old_root_node);
 
