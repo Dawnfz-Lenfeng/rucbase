@@ -202,7 +202,7 @@ class IxIndexHandle {
     // for delete
     bool delete_entry(const char *key, Transaction *transaction);
 
-    bool coalesce_or_redistribute(IxNodeHandle node, Transaction *transaction = nullptr,
+    void coalesce_or_redistribute(IxNodeHandle node, Transaction *transaction = nullptr,
                                 bool *root_is_latched = nullptr);
     bool adjust_root(IxNodeHandle old_root_node);
 
