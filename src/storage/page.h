@@ -73,8 +73,8 @@ class Page {
 
     inline void set_page_lsn(lsn_t page_lsn) { memcpy(get_data() + OFFSET_LSN, &page_lsn, sizeof(lsn_t)); }
 
-    void lock(bool shared = false) { shared ? latch_.lock_shared() : latch_.lock(); }
-    void unlock(bool shared = false) { shared ? latch_.unlock_shared() : latch_.unlock(); }
+    void lock(bool exclusive = true) { exclusive ? latch_.lock() : latch_.lock_shared(); }
+    void unlock(bool exclusive = true) { exclusive ? latch_.unlock() : latch_.unlock_shared(); }
    private:
     void reset_memory() { memset(data_, OFFSET_PAGE_START, PAGE_SIZE); }  // 将data_的PAGE_SIZE个字节填充为0
 
