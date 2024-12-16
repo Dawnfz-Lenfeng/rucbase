@@ -67,7 +67,7 @@ class IxNodeHandle {
         rids = reinterpret_cast<Rid *>(keys + file_hdr->keys_size_);
     }
 
-    int get_size() { return page_hdr->num_key; }
+    int get_size() const { return page_hdr->num_key; }
 
     void set_size(int size) { page_hdr->num_key = size; }
 
@@ -88,7 +88,7 @@ class IxNodeHandle {
 
     page_id_t get_prev_leaf() { return page_hdr->prev_leaf; }
 
-    page_id_t get_parent_page_no() { return page_hdr->parent; }
+    page_id_t get_parent_page_no() const { return page_hdr->parent; }
 
     bool is_leaf_page() { return page_hdr->is_leaf; }
 
@@ -195,7 +195,7 @@ class IxIndexHandle {
     // for insert
     page_id_t insert_entry(const char *key, const Rid &value, Transaction *transaction);
 
-    IxNodeHandle split(IxNodeHandle node);
+    IxNodeHandle split(IxNodeHandle& node);
 
     void insert_into_parent(IxNodeHandle old_node, const char *key, IxNodeHandle new_node, Transaction *transaction);
 

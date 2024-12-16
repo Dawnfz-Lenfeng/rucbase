@@ -46,16 +46,13 @@ void SmManager::create_db(const std::string& db_name) {
         throw UnixError();
     }
     //创建系统目录
-    DbMeta *new_db = new DbMeta();
-    new_db->name_ = db_name;
+    DbMeta new_db(db_name);
 
     // 注意，此处ofstream会在当前目录创建(如果没有此文件先创建)和打开一个名为DB_META_NAME的文件
     std::ofstream ofs(DB_META_NAME);
 
     // 将new_db中的信息，按照定义好的operator<<操作符，写入到ofs打开的DB_META_NAME文件中
-    ofs << *new_db;  // 注意：此处重载了操作符<<
-
-    delete new_db;
+    ofs << new_db;  // 注意：此处重载了操作符<<
 
     // 创建日志文件
     disk_manager_->create_file(LOG_FILE_NAME);
@@ -85,7 +82,20 @@ void SmManager::drop_db(const std::string& db_name) {
  * @param {string&} db_name 数据库名称，与文件夹同名
  */
 void SmManager::open_db(const std::string& db_name) {
-    
+    if (!is_dir(db_name)) {
+        throw DatabaseNotFoundError(db_name);
+    }
+
+    if (chdir(db_name.c_str()) < 0) {
+        throw UnixError();
+    }
+
+    std::ifstream ifs(DB_META_NAME);
+    ifs >> db_;
+
+    if (chdir("..") < 0) {
+        throw UnixError();
+    }
 }
 
 /**
@@ -101,12 +111,28 @@ void SmManager::flush_meta() {
  * @description: 关闭数据库并把数据落盘
  */
 void SmManager::close_db() {
-    
+    flush_meta();
+    db_.tabs_.clear();
+    db_.name_.clear();
+
+    for (auto& [_, fh] : fhs_) {
+        rm_manager_->close_file(fh.get());
+    }
+    fhs_.clear();
+
+    for (auto& [_, ih] : ihs_) {
+        ix_manager_->close_index(ih.get());
+    }
+    ihs_.clear();
+
+    if (chdir("..") < 0) {
+        throw UnixError();
+    }
 }
 
 /**
  * @description: 显示所有的表,通过测试需要将其结果写入到output.txt,详情看题目文档
- * @param {Context*} context 
+ * @param {Context*} context
  */
 void SmManager::show_tables(Context* context) {
     std::fstream outfile;
@@ -116,8 +142,8 @@ void SmManager::show_tables(Context* context) {
     printer.print_separator(context);
     printer.print_record({"Tables"}, context);
     printer.print_separator(context);
-    for (auto &entry : db_.tabs_) {
-        auto &tab = entry.second;
+    for (auto& entry : db_.tabs_) {
+        auto& tab = entry.second;
         printer.print_record({tab.name}, context);
         outfile << "| " << tab.name << " |\n";
     }
@@ -128,10 +154,10 @@ void SmManager::show_tables(Context* context) {
 /**
  * @description: 显示表的元数据
  * @param {string&} tab_name 表名称
- * @param {Context*} context 
+ * @param {Context*} context
  */
 void SmManager::desc_table(const std::string& tab_name, Context* context) {
-    TabMeta &tab = db_.get_table(tab_name);
+    TabMeta& tab = db_.get_table(tab_name);
 
     std::vector<std::string> captions = {"Field", "Type", "Index"};
     RecordPrinter printer(captions.size());
@@ -140,7 +166,7 @@ void SmManager::desc_table(const std::string& tab_name, Context* context) {
     printer.print_record(captions, context);
     printer.print_separator(context);
     // Print fields
-    for (auto &col : tab.cols) {
+    for (auto& col : tab.cols) {
         std::vector<std::string> field_info = {col.name, coltype2str(col.type), col.index ? "YES" : "NO"};
         printer.print_record(field_info, context);
     }
@@ -152,7 +178,7 @@ void SmManager::desc_table(const std::string& tab_name, Context* context) {
  * @description: 创建表
  * @param {string&} tab_name 表的名称
  * @param {vector<ColDef>&} col_defs 表的字段
- * @param {Context*} context 
+ * @param {Context*} context
  */
 void SmManager::create_table(const std::string& tab_name, const std::vector<ColDef>& col_defs, Context* context) {
     if (db_.is_table(tab_name)) {
@@ -162,7 +188,7 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
     int curr_offset = 0;
     TabMeta tab;
     tab.name = tab_name;
-    for (auto &col_def : col_defs) {
+    for (auto& col_def : col_defs) {
         ColMeta col = {.tab_name = tab_name,
                        .name = col_def.name,
                        .type = col_def.type,
@@ -188,7 +214,23 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
  * @param {Context*} context
  */
 void SmManager::drop_table(const std::string& tab_name, Context* context) {
-    
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+
+    TabMeta& tab = db_.get_table(tab_name);
+    rm_manager_->close_file(fhs_[tab_name].get());
+    rm_manager_->destroy_file(tab_name);
+
+    for (auto& col : tab.cols) {
+        if (col.index) {
+            ix_manager_->destroy_index(tab_name, {col.name});
+        }
+    }
+
+    db_.tabs_.erase(tab_name);
+    fhs_.erase(tab_name);
+    flush_meta();
 }
 
 /**
@@ -198,7 +240,7 @@ void SmManager::drop_table(const std::string& tab_name, Context* context) {
  * @param {Context*} context
  */
 void SmManager::create_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context) {
-    TabMeta &tab = db_.get_table(tab_name);
+    TabMeta& tab = db_.get_table(tab_name);
 
     std::vector<ColMeta> cols;
     for (const auto& col_name : col_names) {
@@ -211,7 +253,6 @@ void SmManager::create_index(const std::string& tab_name, const std::vector<std:
     }
 
     ix_manager_->create_index(tab_name, cols);
-
     flush_meta();
 }
 
@@ -222,7 +263,12 @@ void SmManager::create_index(const std::string& tab_name, const std::vector<std:
  * @param {Context*} context
  */
 void SmManager::drop_index(const std::string& tab_name, const std::vector<std::string>& col_names, Context* context) {
-    
+    if (!ix_manager_->exists(tab_name, col_names)) {
+        throw IndexNotFoundError(tab_name, col_names);
+    }
+
+    ix_manager_->destroy_index(tab_name, col_names);
+    flush_meta();
 }
 
 /**
@@ -232,5 +278,15 @@ void SmManager::drop_index(const std::string& tab_name, const std::vector<std::s
  * @param {Context*} context
  */
 void SmManager::drop_index(const std::string& tab_name, const std::vector<ColMeta>& cols, Context* context) {
-    
+    if (!ix_manager_->exists(tab_name, cols)) {
+        std::vector<std::string> col_names;
+        col_names.reserve(cols.size());
+        for (const auto& col : cols) {
+            col_names.push_back(col.name);
+        }
+        throw IndexNotFoundError(tab_name, col_names);
+    }
+
+    ix_manager_->destroy_index(tab_name, cols);
+    flush_meta();
 }
