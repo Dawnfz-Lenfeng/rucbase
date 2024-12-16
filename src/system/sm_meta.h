@@ -43,7 +43,7 @@ struct ColMeta {
 struct IndexMeta {
     std::string tab_name;           // 索引所属表名称
     int col_tot_len;                // 索引字段长度总和
-    int col_num;                    // 索引字段数量
+    size_t col_num;                    // 索引字段数量
     std::vector<ColMeta> cols;      // 索引包含的字段
 
     friend std::ostream &operator<<(std::ostream &os, const IndexMeta &index) {
@@ -56,7 +56,7 @@ struct IndexMeta {
 
     friend std::istream &operator>>(std::istream &is, IndexMeta &index) {
         is >> index.tab_name >> index.col_tot_len >> index.col_num;
-        for(int i = 0; i < index.col_num; ++i) {
+        for(size_t i = 0; i < index.col_num; ++i) {
             ColMeta col;
             is >> col;
             index.cols.push_back(col);

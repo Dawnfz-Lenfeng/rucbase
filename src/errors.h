@@ -112,9 +112,11 @@ class IndexNotFoundError : public RMDBError {
    public:
     IndexNotFoundError(const std::string &tab_name, const std::vector<std::string> &col_names) {
         _msg += "Index not found: " + tab_name + ".(";
-        for(size_t i = 0; i < col_names.size(); ++i) {
-            if(i > 0) _msg += ", ";
-            _msg += col_names[i];
+        bool first = true;
+        for (const auto &col_name : col_names) {
+            if (!first) _msg += ", ";
+            _msg += col_name;
+            first = false;
         }
         _msg += ")";
     }
@@ -124,9 +126,11 @@ class IndexExistsError : public RMDBError {
    public:
     IndexExistsError(const std::string &tab_name, const std::vector<std::string> &col_names) {
         _msg += "Index already exists: " + tab_name + ".(";
-        for(size_t i = 0; i < col_names.size(); ++i) {
-            if(i > 0) _msg += ", ";
-            _msg += col_names[i];
+        bool first = true;
+        for (const auto &col_name : col_names) {
+            if (!first) _msg += ", ";
+            _msg += col_name;
+            first = false;
         }
         _msg += ")";
     }
