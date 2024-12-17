@@ -93,8 +93,17 @@ void SmManager::open_db(const std::string& db_name) {
     std::ifstream ifs(DB_META_NAME);
     ifs >> db_;
 
-    if (chdir("..") < 0) {
-        throw UnixError();
+    // 打开所有表文件
+    for (const auto& [tab_name, tab] : db_.tabs_) {
+        auto fh = rm_manager_->open_file(tab_name);
+        fhs_.emplace(tab_name, std::move(fh));
+
+        // 打开该表的所有索引文件
+        for (const auto& index : tab.indexes) {
+            auto ih = ix_manager_->open_index(tab_name, index.cols);
+            std::string index_name = ix_manager_->get_index_name(tab_name, index.cols);
+            ihs_.emplace(index_name, std::move(ih));
+        }
     }
 }
 
