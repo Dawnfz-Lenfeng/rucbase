@@ -85,15 +85,13 @@ class IndexScanExecutor : public AbstractExecutor {
             return;
         }
 
-        scan_->next();
-        while (!scan_->is_end()) {
+        for (scan_->next(); !scan_->is_end(); scan_->next()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
             if (eval_conds(cols_, conds_, rec.get())) {
                 // 找到满足条件的记录
                 return;
             }
-            scan_->next();
         }
     }
 
