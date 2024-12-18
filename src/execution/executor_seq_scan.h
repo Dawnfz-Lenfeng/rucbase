@@ -26,7 +26,7 @@ class SeqScanExecutor : public AbstractExecutor {
     std::vector<Condition> fed_conds_;  // 同conds_，两个字段相同
 
     Rid rid_;
-    std::unique_ptr<RecScan> scan_;     // table_iterator
+    std::unique_ptr<RecScan> scan_;  // table_iterator
 
     SmManager *sm_manager_;
 
@@ -50,7 +50,20 @@ class SeqScanExecutor : public AbstractExecutor {
      *
      */
     void beginTuple() override {
-        
+        scan_ = std::make_unique<RmScan>(fh_);
+
+        while (!scan_->is_end()) {
+            rid_ = scan_->rid();
+            auto rec = fh_->get_record(rid_, context_);
+            if (eval_conds(cols_, rec.get(), const_cast<std::vector<Condition> &>(conds_))) {
+                // Found a record that matches conditions
+                return;
+            }
+            scan_->next();
+        }
+
+        // 没找到满足条件的元组
+        rid_ = Rid{-1, -1};
     }
 
     /**
@@ -58,7 +71,23 @@ class SeqScanExecutor : public AbstractExecutor {
      *
      */
     void nextTuple() override {
-        
+        if (scan_->is_end()) {
+            rid_ = Rid{-1, -1};
+            return;
+        }
+
+        scan_->next();
+        while (!scan_->is_end()) {
+            rid_ = scan_->rid();
+            auto rec = fh_->get_record(rid_, context_);
+            if (eval_conds(cols_, rec.get(), const_cast<std::vector<Condition> &>(conds_))) {
+                // Found a record that matches conditions
+                return;
+            }
+            scan_->next();
+        }
+
+        rid_ = Rid{-1, -1};
     }
 
     /**
@@ -66,9 +95,9 @@ class SeqScanExecutor : public AbstractExecutor {
      *
      * @return std::unique_ptr<RmRecord>
      */
-    std::unique_ptr<RmRecord> Next() override {
-        return nullptr;
-    }
+    std::unique_ptr<RmRecord> Next() override { return fh_->get_record(rid_, context_); }
+
+    bool is_end() const override { return rid_.page_no == -1; }
 
     Rid &rid() override { return rid_; }
 };
