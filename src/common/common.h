@@ -69,60 +69,6 @@ struct Value {
             memcpy(raw->data, str_val.c_str(), str_val.size());
         }
     }
-
-    bool operator==(const Value &rhs) const {
-        if (type != rhs.type) {
-            return false;
-        }
-        switch (type) {
-            case TYPE_INT:
-                return int_val == rhs.int_val;
-            case TYPE_FLOAT:
-                return float_val == rhs.float_val;
-            case TYPE_STRING:
-                return str_val == rhs.str_val;
-            default:
-                assert(false);
-        }
-    }
-
-    bool operator!=(const Value &rhs) const {
-        if (type != rhs.type) {
-            return true;
-        }
-        switch (type) {
-            case TYPE_INT:
-                return int_val != rhs.int_val;
-            case TYPE_FLOAT:
-                return float_val != rhs.float_val;
-            case TYPE_STRING:
-                return str_val != rhs.str_val;
-            default:
-                assert(false);
-        }
-    }
-
-    bool operator<(const Value &rhs) const {
-        if (type != rhs.type) {
-            throw InternalError("Unexpected column type");
-        }
-        switch (type) {
-            case TYPE_INT:
-                return int_val < rhs.int_val;
-            case TYPE_FLOAT:
-                return float_val < rhs.float_val;
-            case TYPE_STRING:
-                return str_val < rhs.str_val;
-            default:
-                assert(false);
-        }
-    }
-
-    bool operator<=(const Value &rhs) const { return *this < rhs || *this == rhs; }
-
-    bool operator>(const Value &rhs) const { return rhs < *this; }
-
-    bool operator>=(const Value &rhs) const { return rhs <= *this; }
 };
 
 enum CompOp { OP_EQ, OP_NE, OP_LT, OP_GT, OP_LE, OP_GE };

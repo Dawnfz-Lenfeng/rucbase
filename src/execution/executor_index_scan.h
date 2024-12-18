@@ -18,13 +18,13 @@ See the Mulan PSL v2 for more details. */
 
 class IndexScanExecutor : public AbstractExecutor {
    private:
-    std::string tab_name_;                      // 表名称
-    TabMeta tab_;                               // 表的元数据
-    std::vector<Condition> conds_;              // 扫描条件
-    RmFileHandle *fh_;                          // 表的数据文件句柄
-    std::vector<ColMeta> cols_;                 // 需要读取的字段
-    size_t len_;                                // 选取出来的一条记录的长度
-    std::vector<Condition> fed_conds_;          // 扫描条件，和conds_字段相同
+    std::string tab_name_;              // 表名称
+    TabMeta tab_;                       // 表的元数据
+    std::vector<Condition> conds_;      // 扫描条件
+    RmFileHandle *fh_;                  // 表的数据文件句柄
+    std::vector<ColMeta> cols_;         // 需要读取的字段
+    size_t len_;                        // 选取出来的一条记录的长度
+    std::vector<Condition> fed_conds_;  // 扫描条件，和conds_字段相同
 
     std::vector<std::string> index_col_names_;  // index scan涉及到的索引包含的字段
     IndexMeta index_meta_;                      // index scan涉及到的索引元数据
@@ -35,15 +35,15 @@ class IndexScanExecutor : public AbstractExecutor {
     SmManager *sm_manager_;
 
    public:
-    IndexScanExecutor(SmManager *sm_manager, std::string tab_name, std::vector<Condition> conds, std::vector<std::string> index_col_names,
-                    Context *context) {
+    IndexScanExecutor(SmManager *sm_manager, std::string tab_name, std::vector<Condition> conds,
+                      std::vector<std::string> index_col_names, Context *context) {
         sm_manager_ = sm_manager;
         context_ = context;
         tab_name_ = std::move(tab_name);
         tab_ = sm_manager_->db_.get_table(tab_name_);
         conds_ = std::move(conds);
         // index_no_ = index_no;
-        index_col_names_ = index_col_names; 
+        index_col_names_ = index_col_names;
         index_meta_ = *(tab_.get_index_meta(index_col_names_));
         fh_ = sm_manager_->fhs_.at(tab_name_).get();
         cols_ = tab_.cols;
@@ -65,16 +65,41 @@ class IndexScanExecutor : public AbstractExecutor {
     }
 
     void beginTuple() override {
-        
+        auto ih =
+            sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index_col_names_)).get();
+        scan_ = std::make_unique<IxScan>(ih, ih->leaf_begin(), ih->leaf_end(), sm_manager_->get_bpm());
+
+        while (!scan_->is_end()) {
+            rid_ = scan_->rid();
+            auto rec = fh_->get_record(rid_, context_);
+            if (eval_conds(cols_, conds_, rec.get())) {
+                // 找到满足条件的记录
+                return;
+            }
+            scan_->next();
+        }
     }
 
     void nextTuple() override {
-        
+        if (scan_->is_end()) {
+            return;
+        }
+
+        scan_->next();
+        while (!scan_->is_end()) {
+            rid_ = scan_->rid();
+            auto rec = fh_->get_record(rid_, context_);
+            if (eval_conds(cols_, conds_, rec.get())) {
+                // 找到满足条件的记录
+                return;
+            }
+            scan_->next();
+        }
     }
 
-    std::unique_ptr<RmRecord> Next() override {
-        return nullptr;
-    }
+    std::unique_ptr<RmRecord> Next() override { return fh_->get_record(rid_, context_); }
 
     Rid &rid() override { return rid_; }
+
+    bool is_end() const override { return scan_->is_end(); }
 };

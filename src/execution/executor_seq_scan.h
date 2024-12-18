@@ -55,15 +55,12 @@ class SeqScanExecutor : public AbstractExecutor {
         while (!scan_->is_end()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            if (eval_conds(cols_, rec.get(), const_cast<std::vector<Condition> &>(conds_))) {
-                // Found a record that matches conditions
+            if (eval_conds(cols_, conds_, rec.get())) {
+                // 找到满足条件的记录
                 return;
             }
             scan_->next();
         }
-
-        // 没找到满足条件的元组
-        rid_ = Rid{-1, -1};
     }
 
     /**
@@ -72,7 +69,6 @@ class SeqScanExecutor : public AbstractExecutor {
      */
     void nextTuple() override {
         if (scan_->is_end()) {
-            rid_ = Rid{-1, -1};
             return;
         }
 
@@ -80,14 +76,11 @@ class SeqScanExecutor : public AbstractExecutor {
         while (!scan_->is_end()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            if (eval_conds(cols_, rec.get(), const_cast<std::vector<Condition> &>(conds_))) {
-                // Found a record that matches conditions
+            if (eval_conds(cols_, conds_, rec.get())) {
                 return;
             }
             scan_->next();
         }
-
-        rid_ = Rid{-1, -1};
     }
 
     /**
@@ -97,7 +90,7 @@ class SeqScanExecutor : public AbstractExecutor {
      */
     std::unique_ptr<RmRecord> Next() override { return fh_->get_record(rid_, context_); }
 
-    bool is_end() const override { return rid_.page_no == -1; }
+    bool is_end() const override { return scan_->is_end(); }
 
     Rid &rid() override { return rid_; }
 };
