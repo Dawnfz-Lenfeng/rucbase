@@ -37,71 +37,48 @@ class UpdateExecutor : public AbstractExecutor {
         rids_ = rids;
         context_ = context;
     }
+
     std::unique_ptr<RmRecord> Next() override {
-        // // For each record that needs to be updated
-        // for (auto& rid : rids_) {
-        //     // 1. Get the old record
-        //     RmRecord old_rec = fh_->get_record(rid, context_);
+        for (auto& rid : rids_) {
+            auto rec = fh_->get_record(rid, context_);
 
-        //     // 2. Create new record with updated values
-        //     RmRecord new_rec(fh_->get_file_hdr().record_size);
-        //     memcpy(new_rec.data, old_rec.data, fh_->get_file_hdr().record_size);
+            // delete old index entries
+            for (auto& index : tab_.indexes) {
+                auto ih =
+                    sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
 
-        //     // Apply updates according to set_clauses_
-        //     for (const auto& clause : set_clauses_) {
-        //         auto& col = tab_.get_col(clause.col_name);
-        //         // Type check
-        //         if (col.type != clause.val.type) {
-        //             throw IncompatibleTypeError(coltype2str(col.type), coltype2str(clause.val.type));
-        //         }
-        //         // Update value
-        //         clause.val.init_raw(col.len);
-        //         memcpy(new_rec.data + col.offset, clause.val.raw->data, col.len);
-        //     }
+                std::vector<char> old_key(index.col_tot_len);
+                int offset = 0;
+                for (auto& col : index.cols) {
+                    memcpy(old_key.data() + offset, rec->data + col.offset, col.len);
+                    offset += col.len;
+                }
 
-        //     // 3. Update indexes if necessary
-        //     for (auto& index : tab_.indexes) {
-        //         // Check if any updated column is part of this index
-        //         bool need_update_index = false;
-        //         for (const auto& clause : set_clauses_) {
-        //             for (const auto& idx_col : index.cols) {
-        //                 if (clause.col_name == idx_col.name) {
-        //                     need_update_index = true;
-        //                     break;
-        //                 }
-        //             }
-        //             if (need_update_index) break;
-        //         }
+                ih->delete_entry(old_key.data(), context_->txn_);
+            }
 
-        //         // Only update index if affected columns are modified
-        //         if (need_update_index) {
-        //             auto ih = sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols))
-        //                           .get();
+            // update record
+            for (auto& set_clause : set_clauses_) {
+                auto col = tab_.get_col(set_clause.lhs.col_name);
+                memcpy(rec->data + col->offset, set_clause.rhs.raw->data, col->len);
+            }
+            fh_->update_record(rid, rec->data, context_);
 
-        //             // Delete old key
-        //             std::vector<char> old_key(index.col_tot_len);
-        //             int offset = 0;
-        //             for (size_t i = 0; i < index.col_num; ++i) {
-        //                 memcpy(old_key.data() + offset, old_rec.data + index.cols[i].offset, index.cols[i].len);
-        //                 offset += index.cols[i].len;
-        //             }
-        //             ih->delete_entry(old_key.data(), context_->txn_);
+            // insert new index entries
+            for (auto& index : tab_.indexes) {
+                auto ih =
+                    sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index.cols)).get();
 
-        //             // Insert new key
-        //             std::vector<char> new_key(index.col_tot_len);
-        //             offset = 0;
-        //             for (size_t i = 0; i < index.col_num; ++i) {
-        //                 memcpy(new_key.data() + offset, new_rec.data + index.cols[i].offset, index.cols[i].len);
-        //                 offset += index.cols[i].len;
-        //             }
-        //             ih->insert_entry(new_key.data(), rid, context_->txn_);
-        //         }
-        //     }
+                std::vector<char> new_key(index.col_tot_len);
+                int offset = 0;
+                for (auto& col : index.cols) {
+                    memcpy(new_key.data() + offset, rec->data + col.offset, col.len);
+                    offset += col.len;
+                }
 
-        //     // 4. Update the record in table file
-        //     fh_->update_record(rid, new_rec.data, context_);
-        // }
-
+                ih->insert_entry(new_key.data(), rid, context_->txn_);
+            }
+        }
         return nullptr;
     }
 
