@@ -24,6 +24,9 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
     std::vector<Condition> fed_conds_;         // join条件
     bool isend;
 
+    std::unique_ptr<RmRecord> left_rec_;   // 左表当前记录
+    std::unique_ptr<RmRecord> right_rec_;  // 右表当前记录
+
    public:
     NestedLoopJoinExecutor(std::unique_ptr<AbstractExecutor> left, std::unique_ptr<AbstractExecutor> right,
                            std::vector<Condition> conds) {
@@ -47,47 +50,43 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
             isend = true;
             return;
         }
+        left_rec_ = left_->Next();
+
         right_->beginTuple();
+        if (right_->is_end()) {
+            isend = true;
+            return;
+        }
+        right_rec_ = right_->Next();
     }
 
     void nextTuple() override {
-        // 移动到下一个匹配的记录对
         while (!isend) {
             right_->nextTuple();
-
+            // 如果右表已经遍历完，则遍历左表的下一条记录
             if (right_->is_end()) {
-                // 右表扫描完，移动左表到下一条记录
                 left_->nextTuple();
                 if (left_->is_end()) {
                     isend = true;
                     return;
                 }
                 right_->beginTuple();
-            } else {
-                // 检查当前记录对是否满足连接条件
-                auto left_rec = left_->Next();
-                auto right_rec = right_->Next();
-                if (eval_conds(fed_conds_,
-                               [this, left_rec = left_rec.get(), right_rec = right_rec.get()](const Condition &cond) {
-                                   return get_compare_values(left_rec, right_rec, cond);
-                               })) {
-                    return;  // 找到匹配的记录对
-                }
+                left_rec_ = left_->Next();
+            }
+
+            right_rec_ = right_->Next();
+            if (eval_conds(fed_conds_, [this](const Condition &cond) {
+                    return get_compare_values(left_rec_.get(), right_rec_.get(), cond);
+                })) {
+                return;  // 找到匹配的记录对
             }
         }
     }
 
     std::unique_ptr<RmRecord> Next() override {
-        auto left_rec = left_->Next();
-        auto right_rec = right_->Next();
-
-        // 创建连接后的记录
         auto join_rec = std::make_unique<RmRecord>(len_);
-
-        // 复制记录
-        memcpy(join_rec->data, left_rec->data, left_->tupleLen());
-        memcpy(join_rec->data + left_->tupleLen(), right_rec->data, right_->tupleLen());
-
+        memcpy(join_rec->data, left_rec_->data, left_->tupleLen());
+        memcpy(join_rec->data + left_->tupleLen(), right_rec_->data, right_->tupleLen());
         return join_rec;
     }
 
@@ -105,14 +104,14 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
         char *rhs_val = nullptr;
 
         // 确定左值来自哪个表
-        if (lhs_col->offset < left_->tupleLen()) {
+        if (lhs_col->offset < static_cast<int>(left_->tupleLen())) {
             lhs_val = left_rec->data + lhs_col->offset;
         } else {
             lhs_val = right_rec->data + (lhs_col->offset - left_->tupleLen());
         }
 
         // 确定右值来自哪个表
-        if (rhs_col->offset < left_->tupleLen()) {
+        if (rhs_col->offset < static_cast<int>(left_->tupleLen())) {
             rhs_val = left_rec->data + rhs_col->offset;
         } else {
             rhs_val = right_rec->data + (rhs_col->offset - left_->tupleLen());
