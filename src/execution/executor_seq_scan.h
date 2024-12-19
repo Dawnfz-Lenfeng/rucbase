@@ -55,15 +55,8 @@ class SeqScanExecutor : public AbstractExecutor {
         while (!scan_->is_end()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            bool is_valid = true;
-            for (auto &cond : fed_conds_) {
-                auto [lhs, rhs, type, len] = get_compare_values(cond, rec.get());
-                if (!eval_cond(lhs, rhs, type, len, cond.op)) {
-                    is_valid = false;
-                    break;
-                }
-            }
-            if (is_valid) {
+            if (eval_conds(fed_conds_,
+                           [this, rec = rec.get()](const Condition &cond) { return get_compare_values(rec, cond); })) {
                 return;
             }
             scan_->next();
@@ -82,15 +75,8 @@ class SeqScanExecutor : public AbstractExecutor {
         for (scan_->next(); !scan_->is_end(); scan_->next()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            bool is_valid = true;
-            for (auto &cond : fed_conds_) {
-                auto [lhs, rhs, type, len] = get_compare_values(cond, rec.get());
-                if (!eval_cond(lhs, rhs, type, len, cond.op)) {
-                    is_valid = false;
-                    break;
-                }
-            }
-            if (is_valid) {
+            if (eval_conds(fed_conds_,
+                           [this, rec = rec.get()](const Condition &cond) { return get_compare_values(rec, cond); })) {
                 return;
             }
         }
@@ -112,7 +98,7 @@ class SeqScanExecutor : public AbstractExecutor {
     size_t tupleLen() const override { return len_; }
 
    private:
-    std::tuple<char *, char *, ColType, int> get_compare_values(const Condition &cond, const RmRecord *rec) {
+    std::tuple<char *, char *, ColType, int> get_compare_values(const RmRecord *rec, const Condition &cond) {
         auto lhs_col = get_col(cols_, cond.lhs_col);
         char *lhs = rec->data + lhs_col->offset;
 

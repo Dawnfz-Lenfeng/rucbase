@@ -9,6 +9,7 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 #pragma once
+#include <functional>
 
 #include "common/common.h"
 #include "execution_defs.h"
@@ -55,6 +56,23 @@ class AbstractExecutor {
     }
 
    protected:
+    template <typename F>
+    bool eval_conds(const std::vector<Condition> &conds, F &&get_values) {
+        for (auto &cond : conds) {
+            auto [lhs, rhs, type, len] = std::forward<F>(get_values)(cond);
+            if (!eval_cond(lhs, rhs, type, len, cond.op)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    char *get_value(const std::vector<ColMeta> &rec_cols, const TabCol &target, const RmRecord *rec) {
+        auto pos = get_col(rec_cols, target);
+        return rec->data + pos->offset;
+    }
+
+   private:
     bool eval_cond(const char *lhs, const char *rhs, ColType type, int len, const CompOp op) {
         int cmp = ix_compare(lhs, rhs, type, len);
         switch (op) {
@@ -73,10 +91,5 @@ class AbstractExecutor {
             default:
                 throw InternalError("Unexpected op type");
         }
-    }
-
-    char *get_value(const std::vector<ColMeta> &rec_cols, const TabCol &target, const RmRecord *rec) {
-        auto pos = get_col(rec_cols, target);
-        return rec->data + pos->offset;
     }
 };
