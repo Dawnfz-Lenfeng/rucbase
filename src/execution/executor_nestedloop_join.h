@@ -119,4 +119,6 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
 
         return {lhs_val, rhs_val, lhs_col->type, lhs_col->len};
     }
+
+    const std::vector<ColMeta> &cols() const override { return cols_; }
 };
