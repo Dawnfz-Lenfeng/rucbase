@@ -72,8 +72,15 @@ class IndexScanExecutor : public AbstractExecutor {
         while (!scan_->is_end()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            if (eval_conds(cols_, conds_, rec.get())) {
-                // 找到满足条件的记录
+            bool is_valid = true;
+            for (auto &cond : fed_conds_) {
+                auto [lhs, rhs, type, len] = get_compare_values(cond, rec.get());
+                if (!eval_cond(lhs, rhs, type, len, cond.op)) {
+                    is_valid = false;
+                    break;
+                }
+            }
+            if (is_valid) {
                 return;
             }
             scan_->next();
@@ -88,8 +95,15 @@ class IndexScanExecutor : public AbstractExecutor {
         for (scan_->next(); !scan_->is_end(); scan_->next()) {
             rid_ = scan_->rid();
             auto rec = fh_->get_record(rid_, context_);
-            if (eval_conds(cols_, conds_, rec.get())) {
-                // 找到满足条件的记录
+            bool is_valid = true;
+            for (auto &cond : fed_conds_) {
+                auto [lhs, rhs, type, len] = get_compare_values(cond, rec.get());
+                if (!eval_cond(lhs, rhs, type, len, cond.op)) {
+                    is_valid = false;
+                    break;
+                }
+            }
+            if (is_valid) {
                 return;
             }
         }
@@ -100,4 +114,13 @@ class IndexScanExecutor : public AbstractExecutor {
     Rid &rid() override { return rid_; }
 
     bool is_end() const override { return scan_->is_end(); }
+
+   private:
+    std::tuple<char *, char *, ColType, int> get_compare_values(const Condition &cond, const RmRecord *rec) {
+        auto lhs_col = get_col(cols_, cond.lhs_col);
+        char *lhs = rec->data + lhs_col->offset;
+
+        char *rhs = cond.is_rhs_val ? cond.rhs_val.raw->data : get_value(cols_, cond.rhs_col, rec);
+        return {lhs, rhs, lhs_col->type, lhs_col->len};
+    }
 };

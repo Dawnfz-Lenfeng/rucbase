@@ -55,30 +55,9 @@ class AbstractExecutor {
     }
 
    protected:
-    bool eval_conds(const std::vector<ColMeta> &rec_cols, const std::vector<Condition> &conds, const RmRecord *rec) {
-        return std::all_of(conds.begin(), conds.end(),
-                           [&](const Condition &cond) { return eval_cond(rec_cols, cond, rec); });
-    }
-
-    bool eval_cond(const std::vector<ColMeta> &rec_cols, const Condition &cond, const RmRecord *rec) {
-        auto lhs_col = get_col(rec_cols, cond.lhs_col);
-        char *lhs = rec->data + lhs_col->offset;
-
-        char *rhs;
-        ColType rhs_type;
-        if (cond.is_rhs_val) {
-            rhs_type = cond.rhs_val.type;
-            rhs = cond.rhs_val.raw->data;
-        } else {
-            // rhs is a column
-            auto rhs_col = get_col(rec_cols, cond.rhs_col);
-            rhs_type = rhs_col->type;
-            rhs = rec->data + rhs_col->offset;
-        }
-        assert(rhs_type == lhs_col->type);
-
-        int cmp = ix_compare(lhs, rhs, rhs_type, lhs_col->len);
-        switch (cond.op) {
+    bool eval_cond(const char *lhs, const char *rhs, ColType type, int len, const CompOp op) {
+        int cmp = ix_compare(lhs, rhs, type, len);
+        switch (op) {
             case OP_EQ:
                 return cmp == 0;
             case OP_NE:
@@ -94,5 +73,10 @@ class AbstractExecutor {
             default:
                 throw InternalError("Unexpected op type");
         }
+    }
+
+    char *get_value(const std::vector<ColMeta> &rec_cols, const TabCol &target, const RmRecord *rec) {
+        auto pos = get_col(rec_cols, target);
+        return rec->data + pos->offset;
     }
 };
