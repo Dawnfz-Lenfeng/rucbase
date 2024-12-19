@@ -21,9 +21,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
     std::unique_ptr<AbstractExecutor> right_;  // 右儿子节点（需要join的表）
     size_t len_;                               // join后获得的每条记录的长度
     std::vector<ColMeta> cols_;                // join后获得的记录的字段
-
-    std::vector<Condition> fed_conds_;    // join条件
-    std::unique_ptr<RmRecord> left_rec_;  // 左表当前记录
+    std::vector<Condition> fed_conds_;         // join条件
     bool isend;
 
    public:
@@ -49,7 +47,6 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
             isend = true;
             return;
         }
-        left_rec_ = left_->Next();
         right_->beginTuple();
     }
 
@@ -57,6 +54,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
         // 移动到下一个匹配的记录对
         while (!isend) {
             right_->nextTuple();
+
             if (right_->is_end()) {
                 // 右表扫描完，移动左表到下一条记录
                 left_->nextTuple();
@@ -64,29 +62,32 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
                     isend = true;
                     return;
                 }
-                left_rec_ = left_->Next();
                 right_->beginTuple();
             } else {
                 // 检查当前记录对是否满足连接条件
+                auto left_rec = left_->Next();
                 auto right_rec = right_->Next();
-                for (auto &cond : fed_conds_) {
-                    auto [lhs, rhs, type, len] = get_compare_values(left_rec_.get(), right_rec.get(), cond);
-                    if (eval_cond(lhs, rhs, type, len, cond.op)) {
-                        return;  // 找到匹配的记录对
-                    }
+                if (eval_conds(fed_conds_,
+                               [this, left_rec = left_rec.get(), right_rec = right_rec.get()](const Condition &cond) {
+                                   return get_compare_values(left_rec, right_rec, cond);
+                               })) {
+                    return;  // 找到匹配的记录对
                 }
             }
         }
     }
 
     std::unique_ptr<RmRecord> Next() override {
+        auto left_rec = left_->Next();
         auto right_rec = right_->Next();
+
         // 创建连接后的记录
         auto join_rec = std::make_unique<RmRecord>(len_);
-        // 复制左表记录
-        memcpy(join_rec->data, left_rec_->data, left_->tupleLen());
-        // 复制右表记录
+
+        // 复制记录
+        memcpy(join_rec->data, left_rec->data, left_->tupleLen());
         memcpy(join_rec->data + left_->tupleLen(), right_rec->data, right_->tupleLen());
+
         return join_rec;
     }
 
