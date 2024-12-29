@@ -62,6 +62,25 @@ Rid RmFileHandle::insert_record(char* buf, Context* context) {
 }
 
 /**
+ * @description: 在当前表中插入一条记录，指定插入位置
+ * @param {Rid&} rid 要插入的记录的记录号（位置）
+ * @param {char*} buf 要插入的记录的数据
+ * */
+void RmFileHandle::insert_record(const Rid &rid, char *buf) {
+    RmPageHandle page_handle = fetch_page_handle(rid.page_no);
+    memcpy(page_handle.get_slot(rid.slot_no), buf, file_hdr_.record_size);
+    page_handle.page_hdr->num_records++;
+    // update bitmap
+    Bitmap::set(page_handle.bitmap, rid.slot_no);
+
+    if (page_handle.page_hdr->num_records == file_hdr_.num_records_per_page) {
+        file_hdr_.first_free_page_no = page_handle.page_hdr->next_free_page_no;
+    }
+
+    buffer_pool_manager_->unpin_page(page_handle.page->get_page_id(), true);
+}
+
+/**
  * @description: 删除记录文件中记录号为rid的记录
  * @param {Rid&} rid 要删除的记录的记录号（位置）
  * @param {Context*} context

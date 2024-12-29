@@ -79,5 +79,34 @@ void TransactionManager::abort(Transaction* txn, LogManager* log_manager) {
     // 4. 把事务日志刷入磁盘中
     // 5. 更新事务状态
 
-    
+    auto write_set = txn->get_write_set();
+    while (!write_set->empty()) {
+        WriteRecord* write_record = write_set->back();  // 从后往前回滚
+        auto fh = sm_manager_->fhs_.at(write_record->GetTableName()).get();
+
+        switch (write_record->GetWriteType()) {
+            case WType::INSERT_TUPLE:
+                fh->delete_record(write_record->GetRid(), nullptr);
+                break;
+            case WType::DELETE_TUPLE:
+                fh->insert_record(write_record->GetRid(), write_record->GetRecord().data);
+                break;
+            case WType::UPDATE_TUPLE:
+                fh->update_record(write_record->GetRid(), write_record->GetRecord().data, nullptr);
+                break;
+        }
+
+        delete write_record;
+        write_set->pop_back();
+    }
+
+    auto lock_set = txn->get_lock_set();
+    for (auto lock_id : *lock_set) {
+        lock_manager_->unlock(txn, lock_id);
+    }
+    lock_set->clear();
+
+    log_manager->flush_log_to_disk();
+
+    txn->set_state(TransactionState::ABORTED);
 }
