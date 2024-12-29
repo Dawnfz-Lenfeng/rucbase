@@ -48,6 +48,22 @@ void TransactionManager::commit(Transaction* txn, LogManager* log_manager) {
     // 3. 释放事务相关资源，eg.锁集
     // 4. 把事务日志刷入磁盘中
     // 5. 更新事务状态
+
+    auto write_set = txn->get_write_set();
+    while (!write_set->empty()) {
+        delete write_set->front();
+        write_set->pop_front();
+    }
+
+    auto lock_set = txn->get_lock_set();
+    for (auto lock_id : *lock_set) {
+        lock_manager_->unlock(txn, lock_id);
+    }
+    lock_set->clear();
+
+    log_manager->flush_log_to_disk();
+
+    txn->set_state(TransactionState::COMMITTED);
 }
 
 /**
@@ -62,4 +78,6 @@ void TransactionManager::abort(Transaction* txn, LogManager* log_manager) {
     // 3. 清空事务相关资源，eg.锁集
     // 4. 把事务日志刷入磁盘中
     // 5. 更新事务状态
+
+    
 }
