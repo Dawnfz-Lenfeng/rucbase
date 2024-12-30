@@ -18,10 +18,10 @@ static const std::string GroupLockModeStr[10] = {"NON_LOCK", "IS", "IX", "S", "X
 
 class LockManager {
     /* 加锁类型，包括共享锁、排他锁、意向共享锁、意向排他锁、SIX（意向排他锁+共享锁） */
-    enum class LockMode { SHARED, EXLUCSIVE, INTENTION_SHARED, INTENTION_EXCLUSIVE, S_IX };
+    enum class LockMode { INTENTION_SHARED, INTENTION_EXCLUSIVE, SHARED, S_IX, EXLUCSIVE };
 
     /* 用于标识加锁队列中排他性最强的锁类型，例如加锁队列中有SHARED和EXLUSIVE两个加锁操作，则该队列的锁模式为X */
-    enum class GroupLockMode { NON_LOCK, IS, IX, S, X, SIX };
+    enum class GroupLockMode { NON_LOCK, IS, IX, S, SIX, X };
 
     /* 事务的加锁申请 */
     class LockRequest {
@@ -31,8 +31,6 @@ class LockManager {
         txn_id_t txn_id_;     // 申请加锁的事务ID
         LockMode lock_mode_;  // 事务申请加锁的类型
         bool granted_;        // 该事务是否已经被赋予锁
-
-        bool check_lock_strength(LockMode lock_mode, LockDataType lock_data_type);
     };
 
     /* 数据项上的加锁队列 */
@@ -44,7 +42,6 @@ class LockManager {
 
         void push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn);
         bool check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type);
-        bool check_lock_strength(GroupLockMode group_lock_mode, LockDataType lock_data_type);
     };
 
    public:
@@ -72,4 +69,5 @@ class LockManager {
 
     void lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode);
     void lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode, GroupLockMode group_lock_mode);
+    static GroupLockMode get_group_lock_mode(LockMode lock_mode);
 };
