@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include "executor_abstract.h"
 #include "index/ix.h"
 #include "system/sm.h"
+#include "transaction/txn_defs.h"
 
 class UpdateExecutor : public AbstractExecutor {
    private:
@@ -41,6 +42,7 @@ class UpdateExecutor : public AbstractExecutor {
     std::unique_ptr<RmRecord> Next() override {
         for (auto& rid : rids_) {
             auto rec = fh_->get_record(rid, context_);
+            context_->txn_->append_write_record(new WriteRecord(WType::UPDATE_TUPLE, tab_name_, rid, *rec));
 
             // delete old index entries
             for (auto& index : tab_.indexes) {

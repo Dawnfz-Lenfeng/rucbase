@@ -124,12 +124,14 @@ void SmManager::close_db() {
     db_.tabs_.clear();
     db_.name_.clear();
 
-    for (auto& [_, fh] : fhs_) {
+    for (auto&& entry : fhs_) {
+        auto&& fh = entry.second;
         rm_manager_->close_file(fh.get());
     }
     fhs_.clear();
 
-    for (auto& [_, ih] : ihs_) {
+    for (auto&& entry : ihs_) {
+        auto&& ih = entry.second;
         ix_manager_->close_index(ih.get());
     }
     ihs_.clear();
