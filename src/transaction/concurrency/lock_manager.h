@@ -32,7 +32,7 @@ class LockManager {
         LockMode lock_mode_;  // 事务申请加锁的类型
         bool granted_;        // 该事务是否已经被赋予锁
 
-        bool check_compatible(LockMode lock_mode, LockDataType lock_data_type);
+        bool check_lock_strength(LockMode lock_mode, LockDataType lock_data_type);
     };
 
     /* 数据项上的加锁队列 */
@@ -44,7 +44,7 @@ class LockManager {
 
         void push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn);
         bool check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type);
-        bool check_compatible(GroupLockMode group_lock_mode, LockDataType lock_data_type);
+        bool check_lock_strength(GroupLockMode group_lock_mode, LockDataType lock_data_type);
     };
 
    public:
@@ -52,21 +52,24 @@ class LockManager {
 
     ~LockManager() {}
 
-    bool lock_shared_on_record(Transaction* txn, const Rid& rid, int tab_fd);
+    void lock_shared_on_record(Transaction* txn, const Rid& rid, int tab_fd);
 
-    bool lock_exclusive_on_record(Transaction* txn, const Rid& rid, int tab_fd);
+    void lock_exclusive_on_record(Transaction* txn, const Rid& rid, int tab_fd);
 
-    bool lock_shared_on_table(Transaction* txn, int tab_fd);
+    void lock_shared_on_table(Transaction* txn, int tab_fd);
 
-    bool lock_exclusive_on_table(Transaction* txn, int tab_fd);
+    void lock_exclusive_on_table(Transaction* txn, int tab_fd);
 
-    bool lock_IS_on_table(Transaction* txn, int tab_fd);
+    void lock_IS_on_table(Transaction* txn, int tab_fd);
 
-    bool lock_IX_on_table(Transaction* txn, int tab_fd);
+    void lock_IX_on_table(Transaction* txn, int tab_fd);
 
-    bool unlock(Transaction* txn, LockDataId lock_data_id);
+    void unlock(Transaction* txn, LockDataId lock_data_id);
 
    private:
     std::mutex latch_;                                             // 用于锁表的并发
     std::unordered_map<LockDataId, LockRequestQueue> lock_table_;  // 全局锁表
+
+    void lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode);
+    void lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode, GroupLockMode group_lock_mode);
 };
