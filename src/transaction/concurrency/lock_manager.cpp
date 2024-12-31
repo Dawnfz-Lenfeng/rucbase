@@ -9,6 +9,7 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 #include "lock_manager.h"
+#include <algorithm>
 
 // 锁相容性矩阵
 // |     | X | IX | S | IS | SIX |
@@ -21,12 +22,6 @@ See the Mulan PSL v2 for more details. */
 // |-----|---|----|---|----| --- |
 
 bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
-    // 如果请求的锁更强，直接返回请求的锁
-    if (lock_mode > lock_mode_) {
-        lock_mode_ = lock_mode;
-        return true;
-    }
-
     // 特殊的锁升级情况
     if (lock_mode_ == LockMode::SHARED && lock_mode == LockMode::INTENTION_EXCLUSIVE) {
         lock_mode_ = LockMode::S_IX;  // S + IX -> SIX
@@ -37,18 +32,33 @@ bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
         return true;
     }
 
+    if (lock_mode_ < lock_mode) {
+        lock_mode_ = lock_mode;
+        return true;
+    }
+
     return false;
 }
 
-bool LockManager::LockRequestQueue::update_group_lock_mode(GroupLockMode group_lock_mode) {
+bool LockManager::LockRequestQueue::update_group_lock_mode(GroupLockMode group_lock_mode, LockDataType lock_data_type) {
     if (group_lock_mode == GroupLockMode::X && request_queue_.size() > 1) {
         return false;  // X锁与其他锁都不兼容
     }
 
-    if (group_lock_mode_ < group_lock_mode) {
-        group_lock_mode_ = group_lock_mode;
+    GroupLockMode updated_group_lock_mode = group_lock_mode_;
+    if (group_lock_mode_ == GroupLockMode::S && group_lock_mode == GroupLockMode::IX) {
+        updated_group_lock_mode = GroupLockMode::SIX;  // S + IS -> SIX
+    } else if (group_lock_mode_ == GroupLockMode::IX && group_lock_mode == GroupLockMode::S) {
+        updated_group_lock_mode = GroupLockMode::SIX;  // IX + S -> SIX
+    } else if (group_lock_mode_ < group_lock_mode) {
+        updated_group_lock_mode = group_lock_mode;
     }
 
+    if (check_conflict(updated_group_lock_mode, lock_data_type)) {
+        return false;
+    }
+
+    group_lock_mode_ = updated_group_lock_mode;
     return true;
 }
 
@@ -113,9 +123,6 @@ LockManager::GroupLockMode LockManager::get_group_lock_mode(LockMode lock_mode) 
 }
 
 void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode) {
-    if (!txn->get_txn_mode()) {
-        return;
-    }
     // 先获取表的意向锁(IS/IX)
     lock_on_table(txn, tab_fd,
                   lock_mode == LockMode::EXLUCSIVE ? LockMode::INTENTION_EXCLUSIVE : LockMode::INTENTION_SHARED);
@@ -133,7 +140,7 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
             }
 
             GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (!request_queue.update_group_lock_mode(req_group_lock_mode)) {
+            if (!request_queue.update_group_lock_mode(req_group_lock_mode, LockDataType::RECORD)) {
                 throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
             }
             return;
@@ -157,9 +164,6 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
 }
 
 void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode) {
-    if (!txn->get_txn_mode()) {
-        return;
-    }
     std::unique_lock<std::mutex> latch(latch_);
 
     LockDataId lock_data_id(tab_fd, LockDataType::TABLE);
@@ -173,7 +177,7 @@ void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode
             }
 
             GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (!request_queue.update_group_lock_mode(req_group_lock_mode)) {
+            if (!request_queue.update_group_lock_mode(req_group_lock_mode, LockDataType::TABLE)) {
                 throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
             }
             return;
@@ -286,5 +290,46 @@ void LockManager::unlock(Transaction* txn, LockDataId lock_data_id) {
             }
             break;
         }
+    }
+}
+
+bool GapLockTable::try_lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid) {
+    std::unique_lock<std::mutex> latch(latch_);
+
+    // 检查是否与已有的间隙锁冲突
+    auto& locks = gap_locks_[tab_fd];
+    for (const auto& lock : locks) {
+        // 检查区间是否重叠
+        if (!(end_rid < lock.start_rid_ || start_rid > lock.end_rid_)) {
+            return false;  // 有冲突
+        }
+    }
+
+    // 加入新的间隙锁
+    locks.emplace_back(txn->get_transaction_id(), start_rid, end_rid);
+    return true;
+}
+
+bool GapLockTable::check_gap_conflict(int tab_fd, const Rid& rid) {
+    std::unique_lock<std::mutex> latch(latch_);
+
+    auto& locks = gap_locks_[tab_fd];
+    for (const auto& lock : locks) {
+        // 检查记录是否落在任何已锁定的间隙中
+        if (rid > lock.start_rid_ && rid < lock.end_rid_) {
+            return true;  // 有冲突
+        }
+    }
+    return false;
+}
+
+void GapLockTable::release_gap_locks(txn_id_t txn_id) {
+    std::unique_lock<std::mutex> latch(latch_);
+
+    for (auto& pair : gap_locks_) {
+        auto& locks = pair.second;
+        locks.erase(std::remove_if(locks.begin(), locks.end(),
+                                   [txn_id](const GapLock& lock) { return lock.txn_id_ == txn_id; }),
+                    locks.end());
     }
 }
