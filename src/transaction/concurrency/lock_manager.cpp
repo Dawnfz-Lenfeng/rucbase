@@ -239,7 +239,6 @@ void LockManager::lock_IX_on_table(Transaction* txn, int tab_fd) {
  * @param {Transaction*} txn 要释放锁的事务对象指针
  * @param {LockDataId} lock_data_id 要释放的锁ID
  */
-
 void LockManager::unlock(Transaction* txn, LockDataId lock_data_id) {
     std::unique_lock<std::mutex> latch(latch_);
     auto& request_queue = lock_table_[lock_data_id];
@@ -265,7 +264,4 @@ void LockManager::unlock(Transaction* txn, LockDataId lock_data_id) {
             break;
         }
     }
-
-    // 从事务的锁集合中移除
-    txn->get_lock_set()->erase(lock_data_id);
 }

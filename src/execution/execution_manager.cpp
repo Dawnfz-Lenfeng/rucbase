@@ -47,6 +47,8 @@ const char *help_info = "Supported SQL syntax:\n"
 // 主要负责执行DDL语句
 void QlManager::run_mutli_query(std::shared_ptr<Plan> plan, Context *context){
     if (auto x = std::dynamic_pointer_cast<DDLPlan>(plan)) {
+        context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
+
         switch(x->tag) {
             case T_CreateTable:
             {

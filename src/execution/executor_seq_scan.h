@@ -87,7 +87,10 @@ class SeqScanExecutor : public AbstractExecutor {
      *
      * @return std::unique_ptr<RmRecord>
      */
-    std::unique_ptr<RmRecord> Next() override { return fh_->get_record(rid_, context_); }
+    std::unique_ptr<RmRecord> Next() override {
+        context_->lock_mgr_->lock_shared_on_record(context_->txn_, rid_, fh_->GetFd());
+        return fh_->get_record(rid_, context_);
+    }
 
     bool is_end() const override { return scan_->is_end(); }
 
