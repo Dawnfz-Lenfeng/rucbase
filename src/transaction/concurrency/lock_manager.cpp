@@ -54,6 +54,10 @@ bool LockManager::LockRequestQueue::check_conflict(GroupLockMode group_lock_mode
         return true;  // X锁与其他锁都不兼容
     }
 
+    if (group_lock_mode_ == GroupLockMode::NON_LOCK) {
+        return false;  // 没有锁，直接返回false
+    }
+
     if (lock_data_type == LockDataType::TABLE) {
         switch (group_lock_mode) {
             case GroupLockMode::S:
@@ -101,7 +105,8 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
         return;
     }
     // 先获取表的意向锁(IS/IX)
-    lock_on_table(txn, tab_fd, lock_mode);
+    lock_on_table(txn, tab_fd,
+                  lock_mode == LockMode::EXLUCSIVE ? LockMode::INTENTION_EXCLUSIVE : LockMode::INTENTION_SHARED);
 
     std::unique_lock<std::mutex> latch(latch_);
 
