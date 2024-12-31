@@ -31,6 +31,8 @@ class LockManager {
         txn_id_t txn_id_;     // 申请加锁的事务ID
         LockMode lock_mode_;  // 事务申请加锁的类型
         bool granted_;        // 该事务是否已经被赋予锁
+
+        bool update_lock_mode(LockMode lock_mode);
     };
 
     /* 数据项上的加锁队列 */
@@ -68,6 +70,6 @@ class LockManager {
     std::unordered_map<LockDataId, LockRequestQueue> lock_table_;  // 全局锁表
 
     void lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode);
-    void lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode, GroupLockMode group_lock_mode);
+    void lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode);
     static GroupLockMode get_group_lock_mode(LockMode lock_mode);
 };

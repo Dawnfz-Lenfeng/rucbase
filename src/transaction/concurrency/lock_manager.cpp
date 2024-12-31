@@ -20,6 +20,26 @@ See the Mulan PSL v2 for more details. */
 // | SIX | 0 | 0  | 0 | 1  |  0  |
 // |-----|---|----|---|----| --- |
 
+bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
+    // 如果请求的锁更强，直接返回请求的锁
+    if (lock_mode > lock_mode_) {
+        lock_mode_ = lock_mode;
+        return true;
+    }
+
+    // 特殊的锁升级情况
+    if (lock_mode_ == LockMode::SHARED && lock_mode == LockMode::INTENTION_EXCLUSIVE) {
+        lock_mode_ = LockMode::S_IX;  // S + IS -> SIX
+        return true;
+    }
+    if (lock_mode_ == LockMode::INTENTION_EXCLUSIVE && lock_mode == LockMode::SHARED) {
+        lock_mode_ = LockMode::S_IX;  // IX + S -> SIX
+        return true;
+    }
+
+    return false;
+}
+
 void LockManager::LockRequestQueue::push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn) {
     LockRequest lock_request(txn->get_transaction_id(), lock_mode);
     lock_request.granted_ = true;  // no-wait策略下立即授予锁
@@ -78,8 +98,7 @@ LockManager::GroupLockMode LockManager::get_group_lock_mode(LockMode lock_mode) 
 
 void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode) {
     // 先获取表的意向锁(IS/IX)
-    GroupLockMode group_lock_mode = get_group_lock_mode(lock_mode);
-    lock_on_table(txn, tab_fd, lock_mode, group_lock_mode);
+    lock_on_table(txn, tab_fd, lock_mode);
 
     std::unique_lock<std::mutex> latch(latch_);
 
@@ -89,19 +108,20 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
 
     for (auto& req : request_queue.request_queue_) {
         if (req.txn_id_ == txn->get_transaction_id()) {
-            if (req.lock_mode_ >= lock_mode) {
-                return;  // 已经有足够强的锁
+            if (!req.update_lock_mode(lock_mode)) {
+                return;  // 锁模式已经足够强
             }
-            // 需要升级锁
-            req.lock_mode_ = lock_mode;
-            if (request_queue.group_lock_mode_ < group_lock_mode) {
-                request_queue.group_lock_mode_ = group_lock_mode;
+
+            GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
+            if (request_queue.group_lock_mode_ < req_group_lock_mode) {
+                request_queue.group_lock_mode_ = req_group_lock_mode;
             }
             return;
         }
     }
 
     // 检查冲突
+    GroupLockMode group_lock_mode = get_group_lock_mode(lock_mode);
     if (request_queue.check_conflict(group_lock_mode, LockDataType::RECORD)) {
         txn->set_state(TransactionState::ABORTED);
         throw TransactionAbortException(txn->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
@@ -116,7 +136,7 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
     }
 }
 
-void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode, GroupLockMode group_lock_mode) {
+void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode) {
     std::unique_lock<std::mutex> latch(latch_);
 
     LockDataId lock_data_id(tab_fd, LockDataType::TABLE);
@@ -125,19 +145,20 @@ void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode
     // 检查当前事务的锁
     for (auto& req : request_queue.request_queue_) {
         if (req.txn_id_ == txn->get_transaction_id()) {
-            if (req.lock_mode_ >= lock_mode) {
+            if (!req.update_lock_mode(lock_mode)) {
                 return;  // 已经有足够强的锁
             }
-            // 需要升级锁
-            req.lock_mode_ = lock_mode;
-            if (request_queue.group_lock_mode_ < group_lock_mode) {
-                request_queue.group_lock_mode_ = group_lock_mode;
+
+            GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
+            if (request_queue.group_lock_mode_ < req_group_lock_mode) {
+                request_queue.group_lock_mode_ = req_group_lock_mode;
             }
             return;
         }
     }
 
     // 检查冲突
+    GroupLockMode group_lock_mode = get_group_lock_mode(lock_mode);
     if (request_queue.check_conflict(group_lock_mode, LockDataType::TABLE)) {
         txn->set_state(TransactionState::ABORTED);
         throw TransactionAbortException(txn->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
@@ -180,9 +201,7 @@ void LockManager::lock_exclusive_on_record(Transaction* txn, const Rid& rid, int
  * @param {Transaction*} txn 要申请锁的事务对象指针
  * @param {int} tab_fd 目标表的fd
  */
-void LockManager::lock_shared_on_table(Transaction* txn, int tab_fd) {
-    lock_on_table(txn, tab_fd, LockMode::SHARED, GroupLockMode::S);
-}
+void LockManager::lock_shared_on_table(Transaction* txn, int tab_fd) { lock_on_table(txn, tab_fd, LockMode::SHARED); }
 
 /**
  * @description: 申请表级写锁
@@ -191,7 +210,7 @@ void LockManager::lock_shared_on_table(Transaction* txn, int tab_fd) {
  * @param {int} tab_fd 目标表的fd
  */
 void LockManager::lock_exclusive_on_table(Transaction* txn, int tab_fd) {
-    lock_on_table(txn, tab_fd, LockMode::EXLUCSIVE, GroupLockMode::X);
+    lock_on_table(txn, tab_fd, LockMode::EXLUCSIVE);
 }
 
 /**
@@ -201,7 +220,7 @@ void LockManager::lock_exclusive_on_table(Transaction* txn, int tab_fd) {
  * @param {int} tab_fd 目标表的fd
  */
 void LockManager::lock_IS_on_table(Transaction* txn, int tab_fd) {
-    lock_on_table(txn, tab_fd, LockMode::INTENTION_SHARED, GroupLockMode::IS);
+    lock_on_table(txn, tab_fd, LockMode::INTENTION_SHARED);
 }
 
 /**
@@ -211,7 +230,7 @@ void LockManager::lock_IS_on_table(Transaction* txn, int tab_fd) {
  * @param {int} tab_fd 目标表的fd
  */
 void LockManager::lock_IX_on_table(Transaction* txn, int tab_fd) {
-    lock_on_table(txn, tab_fd, LockMode::INTENTION_EXCLUSIVE, GroupLockMode::IX);
+    lock_on_table(txn, tab_fd, LockMode::INTENTION_EXCLUSIVE);
 }
 
 /**
