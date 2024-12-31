@@ -44,6 +44,7 @@ class LockManager {
 
         void push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn);
         bool check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type);
+        bool update_group_lock_mode(GroupLockMode group_lock_mode);
     };
 
    public:

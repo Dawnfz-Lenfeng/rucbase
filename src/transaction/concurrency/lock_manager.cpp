@@ -29,7 +29,7 @@ bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
 
     // 特殊的锁升级情况
     if (lock_mode_ == LockMode::SHARED && lock_mode == LockMode::INTENTION_EXCLUSIVE) {
-        lock_mode_ = LockMode::S_IX;  // S + IS -> SIX
+        lock_mode_ = LockMode::S_IX;  // S + IX -> SIX
         return true;
     }
     if (lock_mode_ == LockMode::INTENTION_EXCLUSIVE && lock_mode == LockMode::SHARED) {
@@ -38,6 +38,18 @@ bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
     }
 
     return false;
+}
+
+bool LockManager::LockRequestQueue::update_group_lock_mode(GroupLockMode group_lock_mode) {
+    if (group_lock_mode == GroupLockMode::X && request_queue_.size() > 1) {
+        return false;  // X锁与其他锁都不兼容
+    }
+
+    if (group_lock_mode_ < group_lock_mode) {
+        group_lock_mode_ = group_lock_mode;
+    }
+
+    return true;
 }
 
 void LockManager::LockRequestQueue::push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn) {
@@ -121,8 +133,8 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
             }
 
             GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (request_queue.group_lock_mode_ < req_group_lock_mode) {
-                request_queue.group_lock_mode_ = req_group_lock_mode;
+            if (!request_queue.update_group_lock_mode(req_group_lock_mode)) {
+                throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
             }
             return;
         }
@@ -161,8 +173,8 @@ void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode
             }
 
             GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (request_queue.group_lock_mode_ < req_group_lock_mode) {
-                request_queue.group_lock_mode_ = req_group_lock_mode;
+            if (!request_queue.update_group_lock_mode(req_group_lock_mode)) {
+                throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
             }
             return;
         }
