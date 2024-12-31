@@ -97,6 +97,9 @@ LockManager::GroupLockMode LockManager::get_group_lock_mode(LockMode lock_mode) 
 }
 
 void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, LockMode lock_mode) {
+    if (!txn->get_txn_mode()) {
+        return;
+    }
     // 先获取表的意向锁(IS/IX)
     lock_on_table(txn, tab_fd, lock_mode);
 
@@ -137,6 +140,9 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
 }
 
 void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode) {
+    if (!txn->get_txn_mode()) {
+        return;
+    }
     std::unique_lock<std::mutex> latch(latch_);
 
     LockDataId lock_data_id(tab_fd, LockDataType::TABLE);

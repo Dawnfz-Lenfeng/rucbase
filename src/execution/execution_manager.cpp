@@ -47,26 +47,29 @@ const char *help_info = "Supported SQL syntax:\n"
 // 主要负责执行DDL语句
 void QlManager::run_mutli_query(std::shared_ptr<Plan> plan, Context *context){
     if (auto x = std::dynamic_pointer_cast<DDLPlan>(plan)) {
-        context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
 
         switch(x->tag) {
             case T_CreateTable:
             {
                 sm_manager_->create_table(x->tab_name_, x->cols_, context);
+                context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
                 break;
             }
             case T_DropTable:
             {
+                context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
                 sm_manager_->drop_table(x->tab_name_, context);
                 break;
             }
             case T_CreateIndex:
             {
                 sm_manager_->create_index(x->tab_name_, x->tab_col_names_, context);
+                context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
                 break;
             }
             case T_DropIndex:
             {
+                context->lock_mgr_->lock_exclusive_on_table(context->txn_, sm_manager_->fhs_[x->tab_name_]->GetFd());
                 sm_manager_->drop_index(x->tab_name_, x->tab_col_names_, context);
                 break;
             }
