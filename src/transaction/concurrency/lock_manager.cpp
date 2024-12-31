@@ -62,7 +62,7 @@ void LockManager::LockRequestQueue::push_back(LockDataId lock_data_id, LockMode 
 }
 
 bool LockManager::LockRequestQueue::check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type) {
-    if (group_lock_mode_ == GroupLockMode::X) {
+    if ((group_lock_mode == GroupLockMode::X && !request_queue_.empty()) || group_lock_mode_ == GroupLockMode::X) {
         return true;  // X锁与其他锁都不兼容
     }
 
