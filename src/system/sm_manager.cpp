@@ -257,13 +257,17 @@ void SmManager::create_index(const std::string& tab_name, const std::vector<std:
     TabMeta& tab = db_.get_table(tab_name);
 
     std::vector<ColMeta> cols;
+    int total_len = 0;
     cols.reserve(col_names.size());
     for (const auto& col_name : col_names) {
         auto col = tab.get_col(col_name);
         col->index = true;
         cols.push_back(*col);
+        total_len += col->len;
     }
     ix_manager_->create_index(tab_name, cols);
+
+    tab.indexes.emplace_back(tab_name, cols, total_len, cols.size());
 
     auto ih = ix_manager_->open_index(tab_name, cols);
     ihs_.emplace(ix_manager_->get_index_name(tab_name, cols), std::move(ih));
@@ -281,10 +285,12 @@ void SmManager::drop_index(const std::string& tab_name, const std::vector<std::s
         throw IndexNotFoundError(tab_name, col_names);
     }
 
+    int total_len = 0;
     TabMeta& tab = db_.get_table(tab_name);
     for (const auto& col_name : col_names) {
         auto col = tab.get_col(col_name);
         col->index = false;
+        total_len += col->len;
     }
 
     std::vector<ColMeta> cols;
@@ -293,6 +299,10 @@ void SmManager::drop_index(const std::string& tab_name, const std::vector<std::s
     }
     std::string index_name = ix_manager_->get_index_name(tab_name, cols);
     ihs_.erase(index_name);
+
+    IndexMeta index(tab_name, cols, total_len, cols.size());
+    auto it = std::find(tab.indexes.begin(), tab.indexes.end(), index);
+    tab.indexes.erase(it);
 
     ix_manager_->destroy_index(tab_name, col_names);
     flush_meta();

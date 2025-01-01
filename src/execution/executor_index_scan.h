@@ -76,6 +76,7 @@ class IndexScanExecutor : public AbstractExecutor {
                            [this, rec = rec.get()](const Condition &cond) { return get_compare_values(rec, cond); })) {
                 return;
             }
+            scan_->next();
         }
     }
 
@@ -108,4 +109,7 @@ class IndexScanExecutor : public AbstractExecutor {
         char *rhs = cond.is_rhs_val ? cond.rhs_val.raw->data : get_value(cols_, cond.rhs_col, rec);
         return {lhs, rhs, lhs_col->type, lhs_col->len};
     }
+
+    const std::vector<ColMeta> &cols() const override { return cols_; }
+    size_t tupleLen() const override { return len_; }
 };
