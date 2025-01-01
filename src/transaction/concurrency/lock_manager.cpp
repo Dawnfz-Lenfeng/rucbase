@@ -21,45 +21,22 @@ See the Mulan PSL v2 for more details. */
 // | SIX | 0 | 0  | 0 | 1  |  0  |
 // |-----|---|----|---|----| --- |
 
-bool LockManager::LockRequest::update_lock_mode(LockMode lock_mode) {
+bool LockManager::LockRequest::update_lock_mode(LockMode& lock_mode) {
     // 特殊的锁升级情况
     if (lock_mode_ == LockMode::SHARED && lock_mode == LockMode::INTENTION_EXCLUSIVE) {
-        lock_mode_ = LockMode::S_IX;  // S + IX -> SIX
+        lock_mode = LockMode::S_IX;  // S + IX -> SIX
         return true;
     }
     if (lock_mode_ == LockMode::INTENTION_EXCLUSIVE && lock_mode == LockMode::SHARED) {
-        lock_mode_ = LockMode::S_IX;  // IX + S -> SIX
+        lock_mode = LockMode::S_IX;  // IX + S -> SIX
         return true;
     }
 
     if (lock_mode_ < lock_mode) {
-        lock_mode_ = lock_mode;
         return true;
     }
 
     return false;
-}
-
-bool LockManager::LockRequestQueue::update_group_lock_mode(GroupLockMode group_lock_mode, LockDataType lock_data_type) {
-    if (group_lock_mode == GroupLockMode::X && request_queue_.size() > 1) {
-        return false;  // X锁与其他锁都不兼容
-    }
-
-    GroupLockMode updated_group_lock_mode = group_lock_mode_;
-    if (group_lock_mode_ == GroupLockMode::S && group_lock_mode == GroupLockMode::IX) {
-        updated_group_lock_mode = GroupLockMode::SIX;  // S + IS -> SIX
-    } else if (group_lock_mode_ == GroupLockMode::IX && group_lock_mode == GroupLockMode::S) {
-        updated_group_lock_mode = GroupLockMode::SIX;  // IX + S -> SIX
-    } else if (group_lock_mode_ < group_lock_mode) {
-        updated_group_lock_mode = group_lock_mode;
-    }
-
-    if (check_conflict(updated_group_lock_mode, lock_data_type)) {
-        return false;
-    }
-
-    group_lock_mode_ = updated_group_lock_mode;
-    return true;
 }
 
 void LockManager::LockRequestQueue::push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn) {
@@ -69,6 +46,30 @@ void LockManager::LockRequestQueue::push_back(LockDataId lock_data_id, LockMode 
     request_queue_.push_back(lock_request);
 
     txn->get_lock_set()->insert(lock_data_id);
+}
+
+void LockManager::LockRequestQueue::erase(txn_id_t txn_id) {
+    for (auto it = request_queue_.begin(); it != request_queue_.end(); ++it) {
+        if (it->txn_id_ == txn_id) {
+            request_queue_.erase(it);
+
+            // 需要更新队列的锁模式
+            if (request_queue_.empty()) {
+                group_lock_mode_ = GroupLockMode::NON_LOCK;
+            } else {
+                // 找到队列中最强的锁模式
+                GroupLockMode strongest = GroupLockMode::NON_LOCK;
+                for (const auto& req : request_queue_) {
+                    GroupLockMode mode = get_group_lock_mode(req.lock_mode_);
+                    if (mode > strongest) {
+                        strongest = mode;
+                    }
+                }
+                group_lock_mode_ = strongest;
+            }
+            return;
+        }
+    }
 }
 
 bool LockManager::LockRequestQueue::check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type) {
@@ -139,11 +140,9 @@ void LockManager::lock_on_record(Transaction* txn, const Rid& rid, int tab_fd, L
                 return;  // 锁模式已经足够强
             }
 
-            GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (!request_queue.update_group_lock_mode(req_group_lock_mode, LockDataType::RECORD)) {
-                throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
-            }
-            return;
+            // 否则移除锁请求并重新加入
+            request_queue.erase(txn->get_transaction_id());
+            break;
         }
     }
 
@@ -176,11 +175,9 @@ void LockManager::lock_on_table(Transaction* txn, int tab_fd, LockMode lock_mode
                 return;  // 已经有足够强的锁
             }
 
-            GroupLockMode req_group_lock_mode = get_group_lock_mode(req.lock_mode_);
-            if (!request_queue.update_group_lock_mode(req_group_lock_mode, LockDataType::TABLE)) {
-                throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
-            }
-            return;
+            // 否则移除锁请求并重新加入
+            request_queue.erase(txn->get_transaction_id());
+            break;
         }
     }
 
@@ -268,29 +265,9 @@ void LockManager::lock_IX_on_table(Transaction* txn, int tab_fd) {
  */
 void LockManager::unlock(Transaction* txn, LockDataId lock_data_id) {
     std::unique_lock<std::mutex> latch(latch_);
+
     auto& request_queue = lock_table_[lock_data_id];
-
-    for (auto it = request_queue.request_queue_.begin(); it != request_queue.request_queue_.end(); ++it) {
-        if (it->txn_id_ == txn->get_transaction_id()) {
-            request_queue.request_queue_.erase(it);
-
-            // 需要更新队列的锁模式
-            if (request_queue.request_queue_.empty()) {
-                request_queue.group_lock_mode_ = GroupLockMode::NON_LOCK;
-            } else {
-                // 找到队列中最强的锁模式
-                GroupLockMode strongest = GroupLockMode::NON_LOCK;
-                for (const auto& req : request_queue.request_queue_) {
-                    GroupLockMode mode = get_group_lock_mode(req.lock_mode_);
-                    if (mode > strongest) {
-                        strongest = mode;
-                    }
-                }
-                request_queue.group_lock_mode_ = strongest;
-            }
-            break;
-        }
-    }
+    request_queue.erase(txn->get_transaction_id());
 }
 
 bool GapLockTable::try_lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid) {

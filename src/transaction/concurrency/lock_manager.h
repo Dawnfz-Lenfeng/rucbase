@@ -60,7 +60,7 @@ class LockManager {
         LockMode lock_mode_;  // 事务申请加锁的类型
         bool granted_;        // 该事务是否已经被赋予锁
 
-        bool update_lock_mode(LockMode lock_mode);
+        bool update_lock_mode(LockMode& lock_mode);
     };
 
     /* 数据项上的加锁队列 */
@@ -71,8 +71,8 @@ class LockManager {
         GroupLockMode group_lock_mode_ = GroupLockMode::NON_LOCK;  // 加锁队列的锁模式
 
         void push_back(LockDataId lock_data_id, LockMode lock_mode, Transaction* txn);
+        void erase(txn_id_t txn_id);
         bool check_conflict(GroupLockMode group_lock_mode, LockDataType lock_data_type);
-        bool update_group_lock_mode(GroupLockMode group_lock_mode, LockDataType lock_data_type);
     };
 
    public:
