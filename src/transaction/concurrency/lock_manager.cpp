@@ -310,3 +310,19 @@ void GapLockTable::release_gap_locks(txn_id_t txn_id) {
                     locks.end());
     }
 }
+
+void LockManager::lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid) {
+    if (!txn->get_txn_mode()) {
+        return;
+    }
+
+    // 尝试加间隙锁
+    if (!gap_lock_table_.try_lock_gap(txn, tab_fd, start_rid, end_rid)) {
+        txn->set_state(TransactionState::ABORTED);
+        throw TransactionAbortException(txn->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
+    }
+}
+
+bool LockManager::check_gap_conflict(int tab_fd, const Rid& rid) {
+    return gap_lock_table_.check_gap_conflict(tab_fd, rid);
+}
