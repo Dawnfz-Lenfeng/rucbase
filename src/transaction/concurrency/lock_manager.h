@@ -12,28 +12,29 @@ See the Mulan PSL v2 for more details. */
 
 #include <condition_variable>
 #include <mutex>
+#include <index/ix_defs.h>
 #include "transaction/transaction.h"
 
 static const std::string GroupLockModeStr[10] = {"NON_LOCK", "IS", "IX", "S", "SIX", "X"};
 
 class GapLock {
    public:
-    GapLock(txn_id_t txn_id, const Rid& start_rid, const Rid& end_rid)
+    GapLock(txn_id_t txn_id, const Iid& start_rid, const Iid& end_rid)
         : txn_id_(txn_id), start_rid_(start_rid), end_rid_(end_rid) {}
 
     txn_id_t txn_id_;  // 持有锁的事务ID
-    Rid start_rid_;    // 间隙起始位置
-    Rid end_rid_;      // 间隙结束位置
+    Iid start_rid_;    // 间隙起始位置
+    Iid end_rid_;      // 间隙结束位置
 };
 
 // 间隙锁表
 class GapLockTable {
    public:
     // 尝试在区间上加锁
-    bool try_lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid);
+    bool lock_gap(Transaction* txn, int tab_fd, const Iid& start_rid, const Iid& end_rid);
 
     // 检查是否与已有的间隙锁冲突
-    bool check_gap_conflict(int tab_fd, const Rid& rid);
+    bool check_gap_conflict(int tab_fd, const Iid& rid);
 
     // 释放事务持有的所有间隙锁
     void release_gap_locks(txn_id_t txn_id);
@@ -95,10 +96,15 @@ class LockManager {
     void unlock(Transaction* txn, LockDataId lock_data_id);
 
     // 加间隙锁
-    void lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid);
+    void lock_gap(Transaction* txn, int tab_fd, const Iid& start_rid, const Iid& end_rid);
 
     // 检查间隙锁冲突
-    bool check_gap_conflict(int tab_fd, const Rid& rid);
+    void check_gap_conflict(Transaction* txn, int tab_fd, const Rid& rid);
+
+    // 释放事务的所有间隙锁
+    void release_gap_locks(txn_id_t txn_id) {
+        gap_lock_table_.release_gap_locks(txn_id);
+    }
 
    private:
     std::mutex latch_;                                             // 用于锁表的并发

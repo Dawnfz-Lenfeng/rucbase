@@ -106,6 +106,7 @@ void TransactionManager::abort(Transaction* txn, LogManager* log_manager) {
     }
     lock_set->clear();
 
+    lock_manager_->release_gap_locks(txn->get_transaction_id());
     log_manager->flush_log_to_disk();
 
     txn->set_state(TransactionState::ABORTED);

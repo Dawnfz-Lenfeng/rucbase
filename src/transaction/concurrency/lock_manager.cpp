@@ -270,12 +270,15 @@ void LockManager::unlock(Transaction* txn, LockDataId lock_data_id) {
     request_queue.erase(txn->get_transaction_id());
 }
 
-bool GapLockTable::try_lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid) {
+bool GapLockTable::lock_gap(Transaction* txn, int tab_fd, const Iid& start_rid, const Iid& end_rid) {
     std::unique_lock<std::mutex> latch(latch_);
 
     // 检查是否与已有的间隙锁冲突
     auto& locks = gap_locks_[tab_fd];
     for (const auto& lock : locks) {
+        if (lock.txn_id_ == txn->get_transaction_id()) {
+            continue;
+        }
         // 检查区间是否重叠
         if (!(end_rid < lock.start_rid_ || start_rid > lock.end_rid_)) {
             return false;  // 有冲突
@@ -287,7 +290,7 @@ bool GapLockTable::try_lock_gap(Transaction* txn, int tab_fd, const Rid& start_r
     return true;
 }
 
-bool GapLockTable::check_gap_conflict(int tab_fd, const Rid& rid) {
+bool GapLockTable::check_gap_conflict(int tab_fd, const Iid& rid) {
     std::unique_lock<std::mutex> latch(latch_);
 
     auto& locks = gap_locks_[tab_fd];
@@ -311,18 +314,17 @@ void GapLockTable::release_gap_locks(txn_id_t txn_id) {
     }
 }
 
-void LockManager::lock_gap(Transaction* txn, int tab_fd, const Rid& start_rid, const Rid& end_rid) {
-    if (!txn->get_txn_mode()) {
-        return;
-    }
-
+void LockManager::lock_gap(Transaction* txn, int tab_fd, const Iid& start_iid, const Iid& end_iid) {
     // 尝试加间隙锁
-    if (!gap_lock_table_.try_lock_gap(txn, tab_fd, start_rid, end_rid)) {
+    if (!gap_lock_table_.lock_gap(txn, tab_fd, start_iid, end_iid)) {
         txn->set_state(TransactionState::ABORTED);
         throw TransactionAbortException(txn->get_transaction_id(), AbortReason::DEADLOCK_PREVENTION);
     }
 }
 
-bool LockManager::check_gap_conflict(int tab_fd, const Rid& rid) {
-    return gap_lock_table_.check_gap_conflict(tab_fd, rid);
+void LockManager::check_gap_conflict(Transaction* txn, int tab_fd, const Rid& rid) {
+    if (gap_lock_table_.check_gap_conflict(tab_fd, rid)) {
+        txn->set_state(TransactionState::ABORTED);
+        throw TransactionAbortException(txn->get_transaction_id(), AbortReason::UPGRADE_CONFLICT);
+    }
 }

@@ -158,7 +158,6 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query) {
         // int index_no = get_indexNo(tables[i], curr_conds);
         std::vector<std::string> index_col_names;
         bool index_exist = get_index_cols(tables[i], curr_conds, index_col_names);
-        std::cout << "index_exist:" << index_exist << std::endl;
         if (index_exist == false) {  // 该表没有索引
             index_col_names.clear();
             table_scan_executors[i] =
@@ -170,7 +169,6 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query) {
     }
     // 只有一个表，不需要join。
     if (tables.size() == 1) {
-        std::cout << "only one table" << std::endl;
         return table_scan_executors[0];
     }
     // 获取where条件

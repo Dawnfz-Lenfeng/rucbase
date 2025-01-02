@@ -142,7 +142,18 @@ public:
     int page_no;
     int slot_no;
 
+    Iid(): page_no(-1), slot_no(-1) {}
+    Iid(int page_no, int slot_no): page_no(page_no), slot_no(slot_no) {}
+    Iid(const Rid& rid): page_no(rid.page_no), slot_no(rid.slot_no) {}
     friend bool operator==(const Iid &x, const Iid &y) { return x.page_no == y.page_no && x.slot_no == y.slot_no; }
 
     friend bool operator!=(const Iid &x, const Iid &y) { return !(x == y); }
+
+    bool operator<(const Iid &y) const {
+        if (page_no < y.page_no) return true;
+        if (page_no > y.page_no) return false;
+        return slot_no < y.slot_no;
+    }
+
+    bool operator>(const Iid &y) const { return y < *this; }
 };

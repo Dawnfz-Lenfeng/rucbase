@@ -10,6 +10,7 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
+#include <climits>
 #include "execution_defs.h"
 #include "execution_manager.h"
 #include "executor_abstract.h"
@@ -33,6 +34,17 @@ class IndexScanExecutor : public AbstractExecutor {
     std::unique_ptr<RecScan> scan_;
 
     SmManager *sm_manager_;
+    // 扫描范围结构
+    struct ScanRange {
+        char *lower_key;       // 范围下界
+        char *upper_key;       // 范围上界
+        bool lower_inclusive;  // 是否包含下界
+        bool upper_inclusive;  // 是否包含上界
+
+        ScanRange(char *lower, char *upper, bool l_incl, bool u_incl)
+            : lower_key(lower), upper_key(upper), lower_inclusive(l_incl), upper_inclusive(u_incl) {}
+    };
+    std::vector<ScanRange> scan_ranges_;
 
    public:
     IndexScanExecutor(SmManager *sm_manager, std::string tab_name, std::vector<Condition> conds,
@@ -67,6 +79,8 @@ class IndexScanExecutor : public AbstractExecutor {
     void beginTuple() override {
         auto ih =
             sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index_col_names_)).get();
+        analyze_conditions();
+        lock_ranges();
         scan_ = std::make_unique<IxScan>(ih, ih->leaf_begin(), ih->leaf_end(), sm_manager_->get_bpm());
 
         while (!scan_->is_end()) {
@@ -112,4 +126,85 @@ class IndexScanExecutor : public AbstractExecutor {
 
     const std::vector<ColMeta> &cols() const override { return cols_; }
     size_t tupleLen() const override { return len_; }
+
+    // 分析条件得到扫描范围
+    void analyze_conditions() {
+        for (const auto &cond : fed_conds_) {
+            // 只处理索引第一列的条件
+            if (cond.lhs_col.col_name == index_col_names_[0] && cond.is_rhs_val) {
+                char *key = cond.rhs_val.raw->data;
+                switch (cond.op) {
+                    case OP_EQ:
+                        scan_ranges_.emplace_back(key, key, true, true);
+                        break;
+                    case OP_LT:
+                        scan_ranges_.emplace_back(nullptr, key, true, false);
+                        break;
+                    case OP_LE:
+                        scan_ranges_.emplace_back(nullptr, key, true, true);
+                        break;
+                    case OP_GT:
+                        scan_ranges_.emplace_back(key, nullptr, false, true);
+                        break;
+                    case OP_GE:
+                        scan_ranges_.emplace_back(key, nullptr, true, true);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    // 对范围加锁
+    void lock_ranges() {
+        auto ih =
+            sm_manager_->ihs_.at(sm_manager_->get_ix_manager()->get_index_name(tab_name_, index_col_names_)).get();
+
+        for (const auto &range : scan_ranges_) {
+            // 获取范围边界的rid
+            Iid start_iid = Iid{-1, -1};
+            Iid end_iid = Iid{INT_MAX, INT_MAX};
+
+            // 获取下界rid
+            if (range.lower_key != nullptr) {
+                // 最小rid
+                start_iid = ih->lower_bound(range.lower_key);
+                auto scan = IxScan(ih, start_iid, ih->leaf_end(), sm_manager_->get_bpm());
+                if (!scan.is_end()) {
+                    start_iid = scan.iid();
+                    if (!range.lower_inclusive) {
+                        // 不包含下界,移到下一个
+                        scan.next();
+                        if (!scan.is_end()) {
+                            start_iid = scan.iid();
+                        }
+                    }
+                }
+            }
+
+            // 获取上界rid
+            if (range.upper_key != nullptr) {
+                end_iid = ih->lower_bound(range.upper_key);
+                auto scan = IxScan(ih, ih->leaf_begin(), end_iid, sm_manager_->get_bpm());
+
+                if(!scan.is_end()) {
+                    end_iid = scan.iid();
+                    if(!range.upper_inclusive) {
+                        // 不包含上界,使用当前位置
+                        end_iid = scan.iid();
+                    } else {
+                        // 包含上界,移到下一个
+                        scan.next();
+                        if(!scan.is_end()) {
+                            end_iid = scan.iid();
+                        }
+                    }
+                }
+            }
+
+            // 对范围加锁
+            context_->lock_mgr_->lock_gap(context_->txn_, fh_->GetFd(), start_iid, end_iid);
+        }
+    }
 };

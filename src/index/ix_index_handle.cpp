@@ -8,7 +8,6 @@ EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
 MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
-#include <algorithm>
 #include "ix_index_handle.h"
 
 #include "ix_scan.h"
@@ -69,7 +68,6 @@ void print_locked(Transaction *transaction) {
         std::cout << "page id: " << page->get_page_id().page_no << std::endl;
     }
 }
-
 
 bool is_locked(Transaction *transaction, Page *page) {
     auto latch_set = transaction->get_index_latch_page_set();
@@ -398,7 +396,7 @@ bool IxIndexHandle::get_value(const char *key, std::vector<Rid> *result, Transac
  * @note need to unpin the new node outside
  * 注意：本函数执行完毕后，原node和new node都需要在函数外面进行unpin
  */
-IxNodeHandle IxIndexHandle::split(IxNodeHandle& node) {
+IxNodeHandle IxIndexHandle::split(IxNodeHandle &node) {
     // Todo:
     // 1. 将原结点的键值对平均分配，右半部分分裂为新的右兄弟结点
     //    需要初始化新节点的page_hdr内容
@@ -769,14 +767,21 @@ Rid IxIndexHandle::get_rid(const Iid &iid) const {
  * 可用*(int *)key转换回去
  */
 Iid IxIndexHandle::lower_bound(const char *key) {
-    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::FIND, nullptr);
+    Transaction txn(0);
+    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::FIND, &txn);
     int idx = leaf.lower_bound(key);
 
     if (root_is_latched) {
         root_latch_.unlock();
     }
 
-    buffer_pool_manager_->unpin_page(leaf.get_page_id(), false);
+    leaf.page->unlock(false);
+    unlock_pages(buffer_pool_manager_, &txn);
+    buffer_pool_manager_->unpin_page(leaf.page->get_page_id(), false);
+    if (root_is_latched) {
+        root_latch_.unlock();
+    }
+
     return {leaf.get_page_id().page_no, idx};
 }
 
@@ -787,7 +792,8 @@ Iid IxIndexHandle::lower_bound(const char *key) {
  * @return Iid
  */
 Iid IxIndexHandle::upper_bound(const char *key) {
-    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::FIND, nullptr);
+    Transaction txn(0);
+    auto [leaf, root_is_latched] = find_leaf_page(key, Operation::FIND, &txn);
 
     int idx = leaf.upper_bound(key);
     page_id_t page_id = leaf.get_page_id().page_no;
@@ -801,11 +807,13 @@ Iid IxIndexHandle::upper_bound(const char *key) {
         idx = 0;
     }
 
+    leaf.page->unlock(false);
+    unlock_pages(buffer_pool_manager_, &txn);
+    buffer_pool_manager_->unpin_page(leaf.page->get_page_id(), false);
     if (root_is_latched) {
         root_latch_.unlock();
     }
 
-    buffer_pool_manager_->unpin_page(leaf.get_page_id(), false);
     return {page_id, idx};
 }
 
@@ -817,7 +825,7 @@ Iid IxIndexHandle::upper_bound(const char *key) {
  */
 Iid IxIndexHandle::leaf_end() const {
     IxNodeHandle node = fetch_node(file_hdr_->last_leaf_);
-    Iid iid = {.page_no = file_hdr_->last_leaf_, .slot_no = node.get_size()};
+    Iid iid{file_hdr_->last_leaf_, node.get_size()};
     buffer_pool_manager_->unpin_page(node.get_page_id(), false);  // unpin it!
     return iid;
 }
@@ -829,7 +837,7 @@ Iid IxIndexHandle::leaf_end() const {
  * @return Iid
  */
 Iid IxIndexHandle::leaf_begin() const {
-    Iid iid = {.page_no = file_hdr_->first_leaf_, .slot_no = 0};
+    Iid iid{file_hdr_->first_leaf_, 0};
     return iid;
 }
 

@@ -68,6 +68,7 @@ class InsertExecutor : public AbstractExecutor {
             }
             ih->insert_entry(key.data(), rid_, context_->txn_);
         }
+        context_->lock_mgr_->check_gap_conflict(context_->txn_, fh_->GetFd(), rid_);
         return nullptr;
     }
     Rid &rid() override { return rid_; }
