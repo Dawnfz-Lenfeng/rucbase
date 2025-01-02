@@ -43,7 +43,7 @@ class DeleteExecutor : public AbstractExecutor {
 
             auto rec = fh_->get_record(rid, context_);
             context_->txn_->append_write_record(new WriteRecord(WType::DELETE_TUPLE, tab_name_, rid, *rec));
-
+            context_->lock_mgr_->check_gap_conflict(context_->txn_, fh_->GetFd(), rid);
             // Delete from index files first
             for (size_t i = 0; i < tab_.indexes.size(); ++i) {
                 auto &index = tab_.indexes[i];
